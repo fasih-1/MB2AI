@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.pyc
+.env
+dist/
+
+# Secrets
+.env
+
+# Generated data and logs
+data/auth_state.json
+data/tasks_raw.json
+logs/
+artifacts/
+
+# Flutter / Dart
+ui/build/
+ui/.dart_tool/
+ui/.flutter-plugins
+ui/.flutter-plugins-dependencies
+ui/.pub-cache/
+ui/.pub/
+
+# IDE
+.vscode/
