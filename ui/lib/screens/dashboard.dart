@@ -1,6 +1,8 @@
-﻿import 'dart:ui';
+﻿import 'dart:io';
+import 'dart:ui';
 
 import 'package:audioplayers/audioplayers.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:local_notifier/local_notifier.dart';
@@ -23,8 +25,11 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   final List<TaskSummary> _tasks = <TaskSummary>[];
+  final TextEditingController _customInstructionsController = TextEditingController();
+  final List<VaultDraft> _vaultDrafts = <VaultDraft>[];
 
   bool _isLoading = true;
+  bool _isVaultLoading = false;
   String? _error;
   String _mode = 'tutor';
   bool _isDraftLoading = false;
@@ -37,6 +42,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final AudioPlayer _audioPlayer = AudioPlayer();
   final Set<String> _recentSuccessEventKeys = <String>{};
   final List<String> _recentSuccessEventOrder = <String>[];
+  String? _attachedFilePath;
+  String? _attachedFileName;
   static final RegExp _genSuccessPattern = RegExp(
     r'GEN_SUCCESS title=(.*?) class=(.*?) path=',
   );
@@ -110,6 +117,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _mode,
         className: _selectedTaskClassName,
         taskTitle: _selectedTaskTitle,
+        customInstructions: _customInstructionsController.text,
+        attachmentFile: _attachedFilePath == null ? null : File(_attachedFilePath!),
       );
       if (!mounted) {
         return;
@@ -208,8 +217,162 @@ class _DashboardScreenState extends State<DashboardScreen> {
     await _handleLogMessage(fakeLog);
   }
 
+  Future<void> _pickAttachment() async {
+    final result = await FilePicker.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: <String>['txt', 'md', 'pdf'],
+      allowMultiple: false,
+    );
+
+    if (result == null || result.files.isEmpty) {
+      return;
+    }
+
+    final selected = result.files.first;
+    if (selected.path == null) {
+      return;
+    }
+
+    setState(() {
+      _attachedFilePath = selected.path;
+      _attachedFileName = selected.name;
+    });
+  }
+
+  void _clearAttachment() {
+    setState(() {
+      _attachedFilePath = null;
+      _attachedFileName = null;
+    });
+  }
+
+  Future<void> _openVaultHistory() async {
+    setState(() {
+      _isVaultLoading = true;
+    });
+
+    try {
+      final drafts = await widget.apiService.getVaultDrafts();
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _vaultDrafts
+          ..clear()
+          ..addAll(drafts);
+        _isVaultLoading = false;
+      });
+
+      await showDialog<void>(
+        context: context,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            title: const Text('Vault History'),
+            content: SizedBox(
+              width: 700,
+              child: _vaultDrafts.isEmpty
+                  ? const Text('No saved drafts yet.')
+                  : ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: _vaultDrafts.length,
+                      separatorBuilder: (context, index) => const Divider(height: 1),
+                      itemBuilder: (context, index) {
+                        final draft = _vaultDrafts[index];
+                        return ListTile(
+                          title: Text(draft.taskTitle),
+                          subtitle: Text(
+                            '${draft.className} | ${draft.mode} | ${draft.createdAt}',
+                          ),
+                          onTap: () {
+                            Navigator.of(context).pop();
+                            setState(() {
+                              _selectedTaskId = 'vault_${draft.id}';
+                              _selectedTaskTitle = draft.taskTitle;
+                              _selectedTaskClassName = draft.className;
+                              _draftMarkdown = draft.content;
+                              _draftError = null;
+                              _isDraftLoading = false;
+                            });
+                          },
+                        );
+                      },
+                    ),
+            ),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Close'),
+              ),
+            ],
+          );
+        },
+      );
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isVaultLoading = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Vault fetch failed: $e')),
+      );
+    }
+  }
+
+  Future<void> _exportDraft() async {
+    final draft = _draftMarkdown;
+    if (draft == null || draft.trim().isEmpty) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No draft to export yet.')),
+      );
+      return;
+    }
+
+    final rawTitle = (_selectedTaskTitle ?? 'draft').trim();
+    final safeTitle = rawTitle.replaceAll(RegExp(r'[<>:"/\\|?*]+'), '_');
+    final savePath = await FilePicker.saveFile(
+      dialogTitle: 'Export Draft',
+      fileName: '$safeTitle.md',
+      type: FileType.custom,
+      allowedExtensions: <String>['md', 'txt'],
+    );
+
+    if (savePath == null) {
+      return;
+    }
+
+    var finalPath = savePath;
+    final lower = finalPath.toLowerCase();
+    if (!lower.endsWith('.md') && !lower.endsWith('.txt')) {
+      finalPath = '$finalPath.md';
+    }
+
+    try {
+      await File(finalPath).writeAsString(draft);
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Draft exported to $finalPath')),
+      );
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Export failed: $e')),
+      );
+    }
+  }
+
   @override
   void dispose() {
+    _customInstructionsController.dispose();
     _audioPlayer.dispose();
     super.dispose();
   }
@@ -548,6 +711,50 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ],
           ),
           const SizedBox(height: 14),
+          TextField(
+            controller: _customInstructionsController,
+            minLines: 2,
+            maxLines: 4,
+            decoration: InputDecoration(
+              labelText: 'Custom Instructions (optional)',
+              hintText: 'Add specific context or constraints for this draft...',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: <Widget>[
+              OutlinedButton.icon(
+                onPressed: _pickAttachment,
+                icon: const Icon(Icons.attach_file),
+                label: const Text('Attach File'),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  _attachedFileName == null
+                      ? 'No file attached (.txt, .md, .pdf)'
+                      : 'Attached: $_attachedFileName',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: textTheme.bodySmall?.copyWith(
+                    color: _attachedFileName == null
+                        ? kSlateText.withValues(alpha: 0.65)
+                        : kSlateText,
+                  ),
+                ),
+              ),
+              if (_attachedFileName != null)
+                IconButton(
+                  onPressed: _clearAttachment,
+                  icon: const Icon(Icons.close),
+                  tooltip: 'Remove attachment',
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
           Wrap(
             spacing: 12,
             runSpacing: 12,
@@ -568,6 +775,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 onPressed: _loadTasks,
                 icon: const Icon(Icons.refresh),
                 label: const Text('Refresh Tasks'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _isVaultLoading ? null : _openVaultHistory,
+                icon: _isVaultLoading
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.history),
+                label: const Text('Vault History'),
               ),
             ],
           ),
@@ -691,32 +909,61 @@ class _DashboardScreenState extends State<DashboardScreen> {
       );
     }
 
-    return Markdown(
-      data: _draftMarkdown!,
-      selectable: true,
-      styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-        p: textTheme.bodyLarge?.copyWith(
-          color: kSlateText.withValues(alpha: 0.95),
-          height: 1.45,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Row(
+          children: <Widget>[
+            Expanded(
+              child: Text(
+                _selectedTaskTitle ?? 'Generated Draft',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: textTheme.titleMedium?.copyWith(
+                  color: kSlateText,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            OutlinedButton.icon(
+              onPressed: _exportDraft,
+              icon: const Icon(Icons.download),
+              label: const Text('Export Draft'),
+            ),
+          ],
         ),
-        h1: textTheme.headlineSmall?.copyWith(color: kAccentBlue, fontWeight: FontWeight.w800),
-        h2: textTheme.titleLarge?.copyWith(color: kAccentBlue, fontWeight: FontWeight.w700),
-        h3: textTheme.titleMedium?.copyWith(color: kAccentBlue, fontWeight: FontWeight.w700),
-        a: textTheme.bodyLarge?.copyWith(
-          color: kAccentBlue,
-          decoration: TextDecoration.underline,
-          decorationColor: kAccentBlue.withValues(alpha: 0.6),
+        const SizedBox(height: 12),
+        Expanded(
+          child: Markdown(
+            data: _draftMarkdown!,
+            selectable: true,
+            styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+              p: textTheme.bodyLarge?.copyWith(
+                color: kSlateText.withValues(alpha: 0.95),
+                height: 1.45,
+              ),
+              h1: textTheme.headlineSmall?.copyWith(color: kAccentBlue, fontWeight: FontWeight.w800),
+              h2: textTheme.titleLarge?.copyWith(color: kAccentBlue, fontWeight: FontWeight.w700),
+              h3: textTheme.titleMedium?.copyWith(color: kAccentBlue, fontWeight: FontWeight.w700),
+              a: textTheme.bodyLarge?.copyWith(
+                color: kAccentBlue,
+                decoration: TextDecoration.underline,
+                decorationColor: kAccentBlue.withValues(alpha: 0.6),
+              ),
+              strong: textTheme.bodyLarge?.copyWith(
+                color: kSlateText,
+                fontWeight: FontWeight.w700,
+              ),
+              listBullet: textTheme.bodyLarge?.copyWith(color: kAccentBlue),
+              blockquote: textTheme.bodyMedium?.copyWith(
+                color: kSlateText.withValues(alpha: 0.82),
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ),
         ),
-        strong: textTheme.bodyLarge?.copyWith(
-          color: kSlateText,
-          fontWeight: FontWeight.w700,
-        ),
-        listBullet: textTheme.bodyLarge?.copyWith(color: kAccentBlue),
-        blockquote: textTheme.bodyMedium?.copyWith(
-          color: kSlateText.withValues(alpha: 0.82),
-          fontStyle: FontStyle.italic,
-        ),
-      ),
+      ],
     );
   }
 }

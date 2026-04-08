@@ -22,6 +22,7 @@ class Settings:
     groq_model: str
     tasks_output_path: Path
     auth_state_path: Path
+    vault_db_path: Path
     project_root: Path
 
 
@@ -48,6 +49,7 @@ def load_settings(force_headed: bool = False, debug_mode: bool = False) -> Setti
 
     tasks_output_rel = os.getenv("TASKS_OUTPUT_PATH", "data/tasks_raw.json")
     auth_state_rel = os.getenv("AUTH_STATE_PATH", "data/auth_state.json")
+    vault_db_rel = os.getenv("VAULT_DB_PATH", "vault.db")
     groq_api_key = os.getenv("GROQ_API_KEY", "").strip()
     groq_model = os.getenv("GROQ_MODEL", "llama3-70b-8192").strip() or "llama3-70b-8192"
 
@@ -65,5 +67,6 @@ def load_settings(force_headed: bool = False, debug_mode: bool = False) -> Setti
         groq_model=groq_model,
         tasks_output_path=(project_root / tasks_output_rel).resolve(),
         auth_state_path=(project_root / auth_state_rel).resolve(),
+        vault_db_path=(project_root / vault_db_rel).resolve(),
         project_root=project_root,
     )

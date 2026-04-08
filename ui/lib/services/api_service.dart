@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
@@ -83,20 +84,79 @@ class ApiService {
     String mode, {
     String? className,
     String? taskTitle,
+    String? customInstructions,
+    File? attachmentFile,
   }) async {
-    final queryParams = <String, String>{
-      'mode': mode,
-    };
-    if (className != null && taskTitle != null) {
-      queryParams['class_name'] = className;
-      queryParams['task_title'] = taskTitle;
+    final uri = Uri.parse('$_baseUrl/generate');
+    final request = http.MultipartRequest('POST', uri)
+      ..fields['mode'] = mode
+      ..fields['custom_instructions'] = customInstructions ?? '';
+
+    if (className != null) {
+      request.fields['class_name'] = className;
+    }
+    if (taskTitle != null) {
+      request.fields['task_title'] = taskTitle;
+    }
+    if (attachmentFile != null) {
+      request.files.add(
+        await http.MultipartFile.fromPath('attachment', attachmentFile.path),
+      );
     }
 
-    final uri = Uri.parse('$_baseUrl/generate').replace(queryParameters: queryParams);
-    final response = await _client.post(uri);
+    final streamedResponse = await _client.send(request);
+    final response = await http.Response.fromStream(streamedResponse);
 
     if (response.statusCode != 200) {
       throw Exception('Failed to trigger generation: ${response.statusCode}');
     }
+  }
+
+  Future<List<VaultDraft>> getVaultDrafts() async {
+    final uri = Uri.parse('$_baseUrl/vault');
+    final response = await _client.get(uri);
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to fetch vault: ${response.statusCode}');
+    }
+
+    final payload = jsonDecode(response.body);
+    final drafts = payload is Map<String, dynamic>
+        ? payload['drafts'] as List<dynamic>? ?? <dynamic>[]
+        : <dynamic>[];
+
+    return drafts
+        .whereType<Map<String, dynamic>>()
+        .map(VaultDraft.fromJson)
+        .toList();
+  }
+}
+
+class VaultDraft {
+  VaultDraft({
+    required this.id,
+    required this.taskTitle,
+    required this.className,
+    required this.mode,
+    required this.createdAt,
+    required this.content,
+  });
+
+  final int id;
+  final String taskTitle;
+  final String className;
+  final String mode;
+  final String createdAt;
+  final String content;
+
+  factory VaultDraft.fromJson(Map<String, dynamic> json) {
+    return VaultDraft(
+      id: (json['id'] as num?)?.toInt() ?? 0,
+      taskTitle: (json['task_title'] ?? 'Untitled Task').toString(),
+      className: (json['class_name'] ?? 'Unknown Class').toString(),
+      mode: (json['mode'] ?? 'tutor').toString(),
+      createdAt: (json['created_at'] ?? '').toString(),
+      content: (json['content'] ?? '').toString(),
+    );
   }
 }

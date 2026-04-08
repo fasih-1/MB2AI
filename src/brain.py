@@ -4,10 +4,13 @@ import json
 import re
 import time
 import math
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from groq import Groq
+
+from .vault import save_draft
 
 
 SYSTEM_INSTRUCTION = (
@@ -53,8 +56,12 @@ def _extract_text(response: Any) -> str:
     raise ValueError("Groq returned an empty response.")
 
 
-def _build_prompt(task: dict[str, Any]) -> str:
-    return (
+def _build_prompt(
+    task: dict[str, Any],
+    custom_instructions: str | None = "",
+    source_document_context: str | None = "",
+) -> str:
+    prompt = (
         "Generate a study-assistant response in Markdown using the required structure.\n\n"
         f"Title: {task.get('title', '')}\n"
         f"Class: {task.get('class_name', '')}\n"
@@ -62,6 +69,16 @@ def _build_prompt(task: dict[str, Any]) -> str:
         "Assignment Instructions:\n"
         f"{task.get('full_description', '')}\n"
     )
+
+    instructions = (custom_instructions or "").strip()
+    if instructions:
+        prompt += f"\nAdditional User Instructions:\n{instructions}\n"
+
+    source_context = (source_document_context or "").strip()
+    if source_context:
+        prompt += f"\nSource Document Context:\n{source_context}\n"
+
+    return prompt
 
 
 def _apply_description_failsafe(description: str) -> tuple[str, bool, int]:
@@ -186,6 +203,9 @@ def generate_drafts_from_tasks(
     mode: str = "tutor",
     class_name: str | None = None,
     task_title: str | None = None,
+    custom_instructions: str | None = "",
+    source_document_context: str | None = "",
+    vault_db_path: Path | None = None,
 ) -> dict[str, int]:
     if not api_key:
         raise ValueError("GROQ_API_KEY is missing. Set it in .env before using --generate.")
@@ -257,7 +277,11 @@ def generate_drafts_from_tasks(
 
         task_for_prompt = dict(task)
         task_for_prompt["full_description"] = safe_description
-        prompt = _build_prompt(task_for_prompt)
+        prompt = _build_prompt(
+            task_for_prompt,
+            custom_instructions=custom_instructions,
+            source_document_context=source_document_context,
+        )
         start = time.perf_counter()
         try:
             body = _generate_with_retry(
@@ -273,6 +297,25 @@ def generate_drafts_from_tasks(
             output_path = class_dir / file_name
 
             _write_markdown(output_path, body)
+
+            if vault_db_path is not None:
+                try:
+                    save_draft(
+                        vault_path=vault_db_path,
+                        task_title=title,
+                        class_name=class_name,
+                        mode=resolved_mode,
+                        created_at=datetime.now(timezone.utc).isoformat(),
+                        content=body,
+                    )
+                except Exception as vault_exc:
+                    logger.warning(
+                        "VAULT_SAVE_FAILED title=%s class=%s reason=%s",
+                        title,
+                        class_name,
+                        vault_exc,
+                    )
+
             generated += 1
 
             elapsed_ms = int((time.perf_counter() - start) * 1000)

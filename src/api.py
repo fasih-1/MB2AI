@@ -8,13 +8,15 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import PlainTextResponse
 
 from .brain import generate_drafts_from_tasks
 from .config import Settings, load_settings
 from .logger import setup_logger
 from .scraper import Scraper
+from .text_extractor import extract_text_from_attachment
+from .vault import list_drafts
 
 _log_queue: asyncio.Queue[str] | None = None
 
@@ -93,6 +95,8 @@ def _run_generate_job(
     mode: str = "tutor",
     class_name: str | None = None,
     task_title: str | None = None,
+    custom_instructions: str | None = "",
+    source_document_context: str | None = "",
 ) -> None:
     settings = load_settings()
     logger = setup_logger(settings.project_root)
@@ -107,6 +111,9 @@ def _run_generate_job(
             mode=mode,
             class_name=class_name,
             task_title=task_title,
+            custom_instructions=custom_instructions,
+            source_document_context=source_document_context,
+            vault_db_path=settings.vault_db_path,
             logger=logger,
         )
         logger.info(
@@ -139,6 +146,13 @@ def get_task_draft(class_name: str, task_title: str) -> str:
     return draft_path.read_text(encoding="utf-8")
 
 
+@app.get("/vault")
+def get_vault() -> dict[str, Any]:
+    settings = _get_settings()
+    drafts = list_drafts(settings.vault_db_path)
+    return {"drafts": drafts}
+
+
 @app.post("/scrape")
 def start_scrape(background_tasks: BackgroundTasks) -> dict[str, str]:
     background_tasks.add_task(_run_scrape_job)
@@ -146,13 +160,30 @@ def start_scrape(background_tasks: BackgroundTasks) -> dict[str, str]:
 
 
 @app.post("/generate")
-def start_generate(
+async def start_generate(
     background_tasks: BackgroundTasks,
-    mode: str = "tutor",
-    class_name: str | None = None,
-    task_title: str | None = None,
+    mode: str = Form("tutor"),
+    class_name: str | None = Form(None),
+    task_title: str | None = Form(None),
+    custom_instructions: str = Form(""),
+    attachment: UploadFile | None = File(None),
 ) -> dict[str, str | None]:
-    background_tasks.add_task(_run_generate_job, mode, class_name, task_title)
+    source_document_context = ""
+    if attachment is not None:
+        attachment_bytes = await attachment.read()
+        source_document_context = extract_text_from_attachment(
+            attachment.filename or "",
+            attachment_bytes,
+        )
+
+    background_tasks.add_task(
+        _run_generate_job,
+        mode,
+        class_name,
+        task_title,
+        custom_instructions,
+        source_document_context,
+    )
     return {
         "status": "Generation started",
         "mode": mode,
