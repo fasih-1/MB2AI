@@ -36,6 +36,17 @@ class ApiService {
 
   final http.Client _client;
 
+  List<TaskSummary> _decodeTasksFromPayload(dynamic payload) {
+    final tasks = payload is Map<String, dynamic>
+        ? payload['tasks'] as List<dynamic>? ?? <dynamic>[]
+        : <dynamic>[];
+
+    return tasks
+        .whereType<Map<String, dynamic>>()
+        .map(TaskSummary.fromJson)
+        .toList();
+  }
+
   Future<List<TaskSummary>> getTasks() async {
     final uri = Uri.parse('$_baseUrl/tasks');
     final response = await _client.get(uri);
@@ -45,14 +56,63 @@ class ApiService {
     }
 
     final payload = jsonDecode(response.body);
-    final tasks = payload is Map<String, dynamic>
-        ? payload['tasks'] as List<dynamic>? ?? <dynamic>[]
-        : <dynamic>[];
+    return _decodeTasksFromPayload(payload);
+  }
 
-    return tasks
-        .whereType<Map<String, dynamic>>()
-        .map(TaskSummary.fromJson)
-        .toList();
+  Future<List<TaskSummary>> getHiddenTasks() async {
+    final uri = Uri.parse('$_baseUrl/tasks/hidden');
+    final response = await _client.get(uri);
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to fetch hidden tasks: ${response.statusCode}');
+    }
+
+    final payload = jsonDecode(response.body);
+    return _decodeTasksFromPayload(payload);
+  }
+
+  Future<void> hideTask(TaskSummary task) async {
+    final uri = Uri.parse('$_baseUrl/tasks/hide');
+    final response = await _client.post(
+      uri,
+      headers: <String, String>{'Content-Type': 'application/json'},
+      body: jsonEncode(<String, String>{
+        'task_id': task.id,
+        'task_title': task.title,
+        'class_name': task.className,
+      }),
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to hide task: ${response.statusCode}');
+    }
+  }
+
+  Future<void> recoverTask(String taskId) async {
+    final uri = Uri.parse('$_baseUrl/tasks/recover');
+    final response = await _client.post(
+      uri,
+      headers: <String, String>{'Content-Type': 'application/json'},
+      body: jsonEncode(<String, String>{'task_id': taskId}),
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to recover task: ${response.statusCode}');
+    }
+  }
+
+  Future<void> permanentlyDeleteTask(String taskId) async {
+    final uri = Uri.parse('$_baseUrl/tasks/permanent');
+    final request = http.Request('DELETE', uri)
+      ..headers['Content-Type'] = 'application/json'
+      ..body = jsonEncode(<String, String>{'task_id': taskId});
+
+    final streamedResponse = await _client.send(request);
+    final response = await http.Response.fromStream(streamedResponse);
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to permanently delete task: ${response.statusCode}');
+    }
   }
 
   Future<String> getDraft(String className, String taskTitle) async {

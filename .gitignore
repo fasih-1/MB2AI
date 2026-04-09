@@ -26,3 +26,6 @@ ui/.pub/
 
 # IDE
 .vscode/
+
+vault.db
+*.lnk

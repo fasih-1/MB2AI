@@ -1,14 +1,11 @@
 import 'dart:async';
+import 'dart:collection';
 
 import 'package:flutter/material.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 class DebugConsole extends StatefulWidget {
-  const DebugConsole({
-    super.key,
-    this.onLogMessage,
-    this.onTestSuccess,
-  });
+  const DebugConsole({super.key, this.onLogMessage, this.onTestSuccess});
 
   final ValueChanged<String>? onLogMessage;
   final Future<void> Function()? onTestSuccess;
@@ -19,12 +16,15 @@ class DebugConsole extends StatefulWidget {
 
 class _DebugConsoleState extends State<DebugConsole> {
   static const String _socketUrl = 'ws://127.0.0.1:8000/ws/logs';
+  static const int _maxLogEntries = 180;
 
-  final List<String> _logs = <String>[];
+  final List<_ConsoleLogEntry> _logs = <_ConsoleLogEntry>[];
+  final Queue<_ConsoleLogEntry> _typingQueue = Queue<_ConsoleLogEntry>();
   final ScrollController _scrollController = ScrollController();
 
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _subscription;
+  Timer? _typingTimer;
 
   @override
   void initState() {
@@ -40,34 +40,69 @@ class _DebugConsoleState extends State<DebugConsole> {
       (dynamic message) {
         final line = message.toString();
         widget.onLogMessage?.call(line);
-        if (!mounted) {
-          return;
-        }
-        setState(() {
-          _logs.add(line);
-        });
-        _scrollToBottom();
+        _appendLog(line);
       },
       onError: (Object error, StackTrace stackTrace) {
-        if (!mounted) {
-          return;
-        }
-        setState(() {
-          _logs.add('[ERROR] WebSocket error: $error');
-        });
-        _scrollToBottom();
+        _appendLog('[ERROR] WebSocket error: $error');
       },
       onDone: () {
-        if (!mounted) {
-          return;
-        }
-        setState(() {
-          _logs.add('[INFO] WebSocket disconnected.');
-        });
-        _scrollToBottom();
+        _appendLog('[INFO] WebSocket disconnected.');
       },
       cancelOnError: false,
     );
+  }
+
+  void _appendLog(String line) {
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      final entry = _ConsoleLogEntry(fullText: line);
+      _logs.add(entry);
+      _typingQueue.add(entry);
+
+      while (_logs.length > _maxLogEntries) {
+        final removed = _logs.removeAt(0);
+        _typingQueue.remove(removed);
+      }
+    });
+
+    _startTypewriter();
+    _scrollToBottom();
+  }
+
+  void _startTypewriter() {
+    if (_typingTimer != null || _typingQueue.isEmpty) {
+      return;
+    }
+
+    final entry = _typingQueue.first;
+    _typingTimer = Timer.periodic(const Duration(milliseconds: 8), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        _typingTimer = null;
+        return;
+      }
+
+      final visibleLength = entry.visibleText.length;
+      if (visibleLength >= entry.fullText.length) {
+        setState(() {
+          entry.visibleText = entry.fullText;
+          _typingQueue.remove(entry);
+        });
+        timer.cancel();
+        _typingTimer = null;
+        _scrollToBottom();
+        _startTypewriter();
+        return;
+      }
+
+      setState(() {
+        entry.visibleText = entry.fullText.substring(0, visibleLength + 1);
+      });
+      _scrollToBottom();
+    });
   }
 
   void _scrollToBottom() {
@@ -85,6 +120,7 @@ class _DebugConsoleState extends State<DebugConsole> {
 
   @override
   void dispose() {
+    _typingTimer?.cancel();
     _subscription?.cancel();
     _channel?.sink.close();
     _scrollController.dispose();
@@ -133,7 +169,10 @@ class _DebugConsoleState extends State<DebugConsole> {
                       visualDensity: VisualDensity.compact,
                       side: const BorderSide(color: Colors.greenAccent),
                       foregroundColor: Colors.greenAccent,
-                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 0),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 7,
+                        vertical: 0,
+                      ),
                       textStyle: const TextStyle(
                         fontFamily: 'Courier',
                         fontSize: 11,
@@ -152,9 +191,12 @@ class _DebugConsoleState extends State<DebugConsole> {
               itemCount: _logs.length,
               itemBuilder: (BuildContext context, int index) {
                 return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 3,
+                  ),
                   child: Text(
-                    _logs[index],
+                    _logs[index].visibleText,
                     style: const TextStyle(
                       fontFamily: 'Courier',
                       color: Colors.greenAccent,
@@ -170,4 +212,11 @@ class _DebugConsoleState extends State<DebugConsole> {
       ),
     );
   }
+}
+
+class _ConsoleLogEntry {
+  _ConsoleLogEntry({required this.fullText});
+
+  final String fullText;
+  String visibleText = '';
 }

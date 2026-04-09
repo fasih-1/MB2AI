@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 import json
 import re
 from functools import lru_cache
@@ -10,13 +11,21 @@ from typing import Any
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import PlainTextResponse
+from pydantic import BaseModel
 
 from .brain import generate_drafts_from_tasks
 from .config import Settings, load_settings
 from .logger import setup_logger
 from .scraper import Scraper
 from .text_extractor import extract_text_from_attachment
-from .vault import list_drafts
+from .vault import (
+    hide_task,
+    list_drafts,
+    list_hidden_task_ids,
+    list_hidden_tasks,
+    permanently_delete_task,
+    recover_task,
+)
 
 _log_queue: asyncio.Queue[str] | None = None
 
@@ -44,6 +53,18 @@ def _sanitize_name(value: str) -> str:
     cleaned = re.sub(r"[<>:\"/\\|?*]+", "_", (value or "").strip())
     cleaned = re.sub(r"\s+", " ", cleaned).strip().strip(".")
     return cleaned[:120] or "untitled"
+
+
+def _normalize_text(value: str | None) -> str:
+    return re.sub(r"\s+", " ", (value or "").strip()).casefold()
+
+
+def _task_signature(class_name: str | None, task_title: str | None) -> str:
+    normalized_class = _normalize_text(class_name)
+    normalized_title = _normalize_text(task_title)
+    if not normalized_class and not normalized_title:
+        return ""
+    return f"{normalized_class}::{normalized_title}"
 
 
 @lru_cache(maxsize=1)
@@ -129,10 +150,141 @@ def _run_generate_job(
         logger.exception("API_GENERATE_FAILED")
 
 
+class HideTaskRequest(BaseModel):
+    task_id: str
+    task_title: str
+    class_name: str
+
+
+class TaskMutationRequest(BaseModel):
+    task_id: str
+
+
 @app.get("/tasks")
 def get_tasks() -> dict[str, Any]:
     settings = _get_settings()
-    return _read_tasks_payload(settings.tasks_output_path)
+    payload = _read_tasks_payload(settings.tasks_output_path)
+    hidden_ids = list_hidden_task_ids(settings.vault_db_path)
+    hidden_rows = list_hidden_tasks(settings.vault_db_path, limit=5000)
+    hidden_signatures = {
+        _task_signature(row.get("class_name"), row.get("task_title"))
+        for row in hidden_rows
+    }
+    tasks = payload.get("tasks")
+    if isinstance(tasks, list):
+        filtered_tasks = []
+        for task in tasks:
+            if not isinstance(task, dict):
+                filtered_tasks.append(task)
+                continue
+
+            task_id = str(task.get("id", "")).strip()
+            task_signature = _task_signature(
+                str(
+                    task.get("class_name")
+                    or task.get("className")
+                    or task.get("class")
+                    or ""
+                ),
+                str(task.get("title") or task.get("task_title") or ""),
+            )
+
+            is_hidden_by_id = bool(task_id) and task_id in hidden_ids
+            is_hidden_by_signature = bool(task_signature) and task_signature in hidden_signatures
+
+            if is_hidden_by_id or is_hidden_by_signature:
+                continue
+
+            filtered_tasks.append(task)
+
+        payload["tasks"] = filtered_tasks
+        metadata = payload.get("metadata")
+        if isinstance(metadata, dict):
+            metadata["visible_tasks"] = len(payload["tasks"])
+            metadata["hidden_tasks"] = len(tasks) - len(payload["tasks"])
+    return payload
+
+
+@app.get("/tasks/hidden")
+def get_hidden_tasks() -> dict[str, Any]:
+    settings = _get_settings()
+    hidden_tasks = list_hidden_tasks(settings.vault_db_path)
+    return {
+        "tasks": [
+            {
+                "id": row["task_id"],
+                "title": row["task_title"],
+                "class_name": row["class_name"],
+                "description": "",
+                "due_date": None,
+                "hidden_at": row["hidden_at"],
+            }
+            for row in hidden_tasks
+        ]
+    }
+
+
+@app.post("/tasks/hide")
+def hide_assignment(payload: HideTaskRequest) -> dict[str, Any]:
+    task_id = payload.task_id.strip()
+    task_title = payload.task_title.strip()
+    class_name = payload.class_name.strip()
+    if not task_id:
+        raise HTTPException(status_code=400, detail="task_id is required.")
+    if not task_title:
+        raise HTTPException(status_code=400, detail="task_title is required.")
+    if not class_name:
+        raise HTTPException(status_code=400, detail="class_name is required.")
+
+    settings = _get_settings()
+    hide_task(
+        settings.vault_db_path,
+        task_id=task_id,
+        task_title=task_title,
+        class_name=class_name,
+        hidden_at=datetime.now(timezone.utc).isoformat(),
+    )
+    return {
+        "success": True,
+        "message": "Task hidden.",
+        "task_id": task_id,
+    }
+
+
+@app.post("/tasks/recover")
+def recover_assignment(payload: TaskMutationRequest) -> dict[str, Any]:
+    task_id = payload.task_id.strip()
+    if not task_id:
+        raise HTTPException(status_code=400, detail="task_id is required.")
+
+    settings = _get_settings()
+    recovered = recover_task(settings.vault_db_path, task_id)
+    if not recovered:
+        raise HTTPException(status_code=404, detail="Task is not hidden.")
+
+    return {
+        "success": True,
+        "message": "Task recovered.",
+        "task_id": task_id,
+    }
+
+
+@app.delete("/tasks/permanent")
+def permanently_delete_assignment(payload: TaskMutationRequest) -> dict[str, Any]:
+    task_id = payload.task_id.strip()
+    if not task_id:
+        raise HTTPException(status_code=400, detail="task_id is required.")
+
+    settings = _get_settings()
+    deleted = permanently_delete_task(settings.vault_db_path, task_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Task is not in completed list.")
+
+    return {
+        "success": True,
+        "message": "Task permanently deleted.",
+        "task_id": task_id,
+    }
 
 
 @app.get("/tasks/{class_name}/{task_title}/draft", response_class=PlainTextResponse)
