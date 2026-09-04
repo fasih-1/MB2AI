@@ -55,7 +55,7 @@ def load_settings(force_headed: bool = False, debug_mode: bool = False) -> Setti
     auth_state_rel = os.getenv("AUTH_STATE_PATH", "data/auth_state.json")
     vault_db_rel = os.getenv("VAULT_DB_PATH", "vault.db")
     groq_api_key = os.getenv("GROQ_API_KEY", "").strip()
-    groq_model = os.getenv("GROQ_MODEL", "llama3-70b-8192").strip() or "llama3-70b-8192"
+    groq_model = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b").strip() or "openai/gpt-oss-20b"
     gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
     gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash").strip() or "gemini-2.0-flash"
 

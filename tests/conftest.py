@@ -159,7 +159,7 @@ def make_settings(tmp_path: Path, vault_db: Path, **overrides: Any) -> Settings:
         "retry_attempts": 3,
         "retry_backoff_seconds": 2,
         "groq_api_key": "test-groq-key",
-        "groq_model": "llama-3.3-70b-versatile",
+        "groq_model": "openai/gpt-oss-20b",
         "gemini_api_key": "",
         "gemini_model": "gemini-2.0-flash",
         "llm_provider": "auto",
