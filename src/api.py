@@ -18,21 +18,24 @@ from .config import Settings, load_settings
 from .logger import setup_logger
 from .providers import NoProviderAvailableError, build_router
 from .scraper import Scraper
-from .text_extractor import extract_text_from_attachment
+from .text_extractor import extract_text_from_attachment, extract_text_from_path
 from .vault import (
     DEFAULT_SOURCE,
     KNOWN_SOURCES,
     count_tasks,
+    find_task_by_title,
     get_last_sync_run,
     hide_task,
     ingest_scrape_payload,
     list_drafts,
     list_hidden_items,
     list_subjects,
+    list_task_attachments,
     list_tasks,
     permanently_delete_task,
     recover_task,
     record_sync_run,
+    set_attachment_text,
 )
 
 _log_queue: asyncio.Queue[str] | None = None
@@ -181,6 +184,51 @@ def _run_scrape_job() -> None:
         logger.exception("API_SCRAPE_FAILED")
 
 
+def _scraped_attachment_context(
+    settings: Settings, class_name: str | None, task_title: str | None, logger
+) -> str:
+    """Text from the attachments the scraper already downloaded for a task.
+
+    The scraper saves assignment attachments to disk and records them, but
+    generation previously ignored them and made the user re-upload the same
+    file by hand. Extracted text is cached on the row so a PDF is parsed once.
+
+    Unreadable or unsupported files (the scraper also grabs .docx and images)
+    are skipped rather than failing the run.
+    """
+    if not class_name or not task_title:
+        return ""
+
+    task = find_task_by_title(settings.vault_db_path, class_name, task_title)
+    if task is None:
+        return ""
+
+    sections: list[str] = []
+    for attachment in list_task_attachments(settings.vault_db_path, int(task["id"])):
+        text = (attachment["extracted_text"] or "").strip()
+
+        if not text:
+            path = settings.project_root / attachment["relative_path"]
+            text = extract_text_from_path(path).strip()
+            if text:
+                try:
+                    set_attachment_text(
+                        settings.vault_db_path, int(attachment["id"]), text
+                    )
+                except Exception as exc:
+                    logger.warning("ATTACHMENT_CACHE_FAILED reason=%s", exc)
+
+        if text:
+            sections.append(f"--- {attachment['file_name']} ---\n{text}")
+        else:
+            logger.info(
+                "ATTACHMENT_SKIPPED file=%s reason=no_extractable_text",
+                attachment["file_name"],
+            )
+
+    return "\n\n".join(sections)
+
+
 def _run_generate_job(
     mode: str = "tutor",
     class_name: str | None = None,
@@ -196,6 +244,20 @@ def _run_generate_job(
         # Generation reads the vault, so it honours hides and permanent deletes
         # rather than regenerating from whatever the last scrape left on disk.
         tasks, _ = list_tasks(settings.vault_db_path)
+
+        # An explicit upload wins; otherwise fall back to what the scraper
+        # already downloaded for this task.
+        if not (source_document_context or "").strip():
+            source_document_context = _scraped_attachment_context(
+                settings, class_name, task_title, logger
+            )
+            if source_document_context:
+                logger.info(
+                    "GEN_ATTACHMENT_CONTEXT source=scraped chars=%s class=%s title=%s",
+                    len(source_document_context),
+                    class_name,
+                    task_title,
+                )
 
         summary = generate_drafts_from_tasks(
             tasks=tasks,

@@ -608,6 +608,34 @@ def _attachments_for_tasks(
     return grouped
 
 
+def list_task_attachments(vault_path: Path, task_id: int) -> list[dict[str, Any]]:
+    """Attachment rows for a task, including any cached extracted text."""
+    _ensure_db(vault_path)
+    with _connect(vault_path) as connection:
+        rows = connection.execute(
+            """
+            SELECT id, task_id, file_name, relative_path, extracted_text
+            FROM task_attachments
+            WHERE task_id = ?
+            ORDER BY id ASC
+            """,
+            (task_id,),
+        ).fetchall()
+
+    return [dict(row) for row in rows]
+
+
+def set_attachment_text(vault_path: Path, attachment_id: int, text: str) -> None:
+    """Cache extracted text so a PDF is only parsed once."""
+    _ensure_db(vault_path)
+    with _connect(vault_path) as connection:
+        connection.execute(
+            "UPDATE task_attachments SET extracted_text = ? WHERE id = ?",
+            (text, attachment_id),
+        )
+        connection.commit()
+
+
 def _task_to_api_dict(row: sqlite3.Row, attachments: list[str]) -> dict[str, Any]:
     """Response shape: legacy keys the Flutter client reads, plus additive ones."""
     try:
