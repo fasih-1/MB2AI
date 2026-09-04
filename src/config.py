@@ -20,6 +20,10 @@ class Settings:
     retry_backoff_seconds: int
     groq_api_key: str
     groq_model: str
+    gemini_api_key: str
+    gemini_model: str
+    llm_provider: str
+    llm_large_context_chars: int
     tasks_output_path: Path
     auth_state_path: Path
     vault_db_path: Path
@@ -52,6 +56,11 @@ def load_settings(force_headed: bool = False, debug_mode: bool = False) -> Setti
     vault_db_rel = os.getenv("VAULT_DB_PATH", "vault.db")
     groq_api_key = os.getenv("GROQ_API_KEY", "").strip()
     groq_model = os.getenv("GROQ_MODEL", "llama3-70b-8192").strip() or "llama3-70b-8192"
+    gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash").strip() or "gemini-2.0-flash"
+
+    # "auto" routes by prompt size; "groq" or "gemini" pins one backend.
+    llm_provider = os.getenv("LLM_PROVIDER", "auto").strip().lower() or "auto"
 
     return Settings(
         username=username,
@@ -65,6 +74,10 @@ def load_settings(force_headed: bool = False, debug_mode: bool = False) -> Setti
         retry_backoff_seconds=int(os.getenv("RETRY_BACKOFF_SECONDS", "2")),
         groq_api_key=groq_api_key,
         groq_model=groq_model,
+        gemini_api_key=gemini_api_key,
+        gemini_model=gemini_model,
+        llm_provider=llm_provider,
+        llm_large_context_chars=int(os.getenv("LLM_LARGE_CONTEXT_CHARS", "12000")),
         tasks_output_path=(project_root / tasks_output_rel).resolve(),
         auth_state_path=(project_root / auth_state_rel).resolve(),
         vault_db_path=(project_root / vault_db_rel).resolve(),

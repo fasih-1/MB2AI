@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 import time
 import math
@@ -8,8 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from groq import Groq
-
+from .providers import GenerationRequest, LLMProvider, ProviderRouter
 from .vault import save_draft
 
 
@@ -32,6 +30,8 @@ GHOSTWRITER_SYSTEM_INSTRUCTION = (
 
 SUPPORTED_MODES = {"tutor", "ghostwriter"}
 
+# Fallback description budget. The real limit comes from the routed provider's
+# max_description_chars, so a large-context backend is not capped to Groq's.
 MAX_DESCRIPTION_CHARS = 1500
 TRUNCATION_SUFFIX = "... [TRUNCATED FOR LENGTH]"
 
@@ -40,20 +40,6 @@ def _sanitize_name(value: str) -> str:
     cleaned = re.sub(r"[<>:\"/\\|?*]+", "_", (value or "").strip())
     cleaned = re.sub(r"\s+", " ", cleaned).strip().strip(".")
     return cleaned[:120] or "untitled"
-
-
-def _extract_text(response: Any) -> str:
-    choices = getattr(response, "choices", None) or []
-    if not choices:
-        raise ValueError("Groq returned no choices.")
-
-    message = getattr(choices[0], "message", None)
-    content = getattr(message, "content", None)
-
-    if isinstance(content, str) and content.strip():
-        return content.strip()
-
-    raise ValueError("Groq returned an empty response.")
 
 
 def _build_prompt(
@@ -81,12 +67,14 @@ def _build_prompt(
     return prompt
 
 
-def _apply_description_failsafe(description: str) -> tuple[str, bool, int]:
+def _apply_description_failsafe(
+    description: str, max_chars: int = MAX_DESCRIPTION_CHARS
+) -> tuple[str, bool, int]:
     original_len = len(description)
-    if original_len <= MAX_DESCRIPTION_CHARS:
+    if original_len <= max_chars:
         return description, False, original_len
 
-    truncated = description[:MAX_DESCRIPTION_CHARS] + TRUNCATION_SUFFIX
+    truncated = description[:max_chars] + TRUNCATION_SUFFIX
     return truncated, True, original_len
 
 
@@ -113,92 +101,10 @@ def _write_markdown(output_path: Path, body: str) -> None:
     output_path.write_text(body.strip() + "\n", encoding="utf-8")
 
 
-def _is_retryable_error(exc: Exception) -> bool:
-    message = str(exc).lower()
-    return (
-        "429" in message
-        or "too many requests" in message
-        or "timeout" in message
-        or "timed out" in message
-        or "deadline exceeded" in message
-    )
-
-
-def _is_auth_error(exc: Exception) -> bool:
-    message = str(exc).lower()
-    return "api_key_invalid" in message or "401" in message or "permission_denied" in message
-
-
-def _extract_retry_delay_seconds(exc: Exception) -> int | None:
-    message = str(exc).lower()
-
-    # Examples we handle:
-    # - "retry in 59 seconds"
-    # - "retry in 12.5s"
-    # - "retry_delay { seconds: 59 }"
-    patterns = [
-        r"retry\s+in\s+([0-9]+(?:\.[0-9]+)?)\s*(?:seconds|second|secs|sec|s)",
-        r"retry_delay[^\d]*([0-9]+(?:\.[0-9]+)?)",
-    ]
-
-    for pattern in patterns:
-        match = re.search(pattern, message)
-        if not match:
-            continue
-        try:
-            return max(1, int(math.ceil(float(match.group(1)))))
-        except Exception:
-            continue
-
-    return None
-
-
-def _generate_with_retry(
-    client: Groq,
-    model_name: str,
-    prompt: str,
-    system_instruction: str,
-    logger,
-) -> str:
-    backoff_schedule = [15, 30, 60]
-    max_attempts = 1 + len(backoff_schedule)
-
-    for attempt in range(1, max_attempts + 1):
-        try:
-            response = client.chat.completions.create(
-                model=model_name,
-                messages=[
-                    {"role": "system", "content": system_instruction},
-                    {"role": "user", "content": prompt},
-                ],
-                # Keep output bounded to reduce TPM pressure on free tier.
-                max_tokens=900,
-            )
-            return _extract_text(response)
-        except Exception as exc:
-            if _is_auth_error(exc):
-                raise
-
-            if _is_retryable_error(exc) and attempt < max_attempts:
-                parsed_delay = _extract_retry_delay_seconds(exc)
-                delay = parsed_delay if parsed_delay is not None else backoff_schedule[attempt - 1]
-                logger.warning(
-                    "GEN_RETRY attempt=%s/%s delay_s=%s reason=%s",
-                    attempt,
-                    max_attempts,
-                    delay,
-                    exc,
-                )
-                time.sleep(delay)
-                continue
-            raise
-
-
 def generate_drafts_from_tasks(
-    tasks_path: Path,
+    tasks: list[dict[str, Any]],
     output_base: Path,
-    api_key: str,
-    model_name: str,
+    provider_router: ProviderRouter,
     logger,
     mode: str = "tutor",
     class_name: str | None = None,
@@ -207,31 +113,18 @@ def generate_drafts_from_tasks(
     source_document_context: str | None = "",
     vault_db_path: Path | None = None,
 ) -> dict[str, int]:
-    if not api_key:
-        raise ValueError("GROQ_API_KEY is missing. Set it in .env before using --generate.")
-
     resolved_mode = _resolve_mode(mode)
     if resolved_mode != (mode or "").strip().lower():
         logger.info("GEN_MODE_FALLBACK requested=%s resolved=%s", mode, resolved_mode)
 
     logger.info(
-        "GEN_CONFIG model=%s api_key_len=%s mode=%s",
-        model_name,
-        len(api_key),
+        "GEN_CONFIG router=%s mode=%s",
+        provider_router.describe(),
         resolved_mode,
     )
 
-    if not tasks_path.exists():
-        raise FileNotFoundError(f"tasks file not found: {tasks_path}")
-
-    with tasks_path.open("r", encoding="utf-8") as handle:
-        payload = json.load(handle)
-
-    tasks = payload.get("tasks", []) if isinstance(payload, dict) else payload
     if not isinstance(tasks, list):
-        raise ValueError("Invalid tasks_raw.json format: expected a list under 'tasks'.")
-
-    client = Groq(api_key=api_key)
+        raise ValueError("Expected a list of task dicts.")
 
     generated = 0
     skipped = 0
@@ -265,31 +158,53 @@ def generate_drafts_from_tasks(
             logger.info("GEN_SKIP_EMPTY_DESCRIPTION title=%s class=%s", title, class_name)
             continue
 
-        safe_description, was_truncated, original_len = _apply_description_failsafe(full_description)
+        # Route on the untruncated prompt: its full size is the honest measure
+        # of how much context this task actually needs.
+        routing_task = dict(task)
+        routing_task["full_description"] = full_description
+        prompt = _build_prompt(
+            routing_task,
+            custom_instructions=custom_instructions,
+            source_document_context=source_document_context,
+        )
+        provider = provider_router.select(len(prompt))
+
+        safe_description, was_truncated, original_len = _apply_description_failsafe(
+            full_description, provider.max_description_chars
+        )
         if was_truncated:
             logger.info(
-                "GEN_DESCRIPTION_TRUNCATED title=%s class=%s original_len=%s kept_len=%s",
+                "GEN_DESCRIPTION_TRUNCATED title=%s class=%s provider=%s original_len=%s kept_len=%s",
                 title,
                 class_name,
+                provider.name,
                 original_len,
                 len(safe_description),
             )
 
-        task_for_prompt = dict(task)
-        task_for_prompt["full_description"] = safe_description
-        prompt = _build_prompt(
-            task_for_prompt,
-            custom_instructions=custom_instructions,
-            source_document_context=source_document_context,
+            task_for_prompt = dict(task)
+            task_for_prompt["full_description"] = safe_description
+            prompt = _build_prompt(
+                task_for_prompt,
+                custom_instructions=custom_instructions,
+                source_document_context=source_document_context,
+            )
+
+        logger.info(
+            "GEN_ROUTE title=%s provider=%s model=%s prompt_chars=%s",
+            title,
+            provider.name,
+            provider.model,
+            len(prompt),
         )
+
         start = time.perf_counter()
         try:
-            body = _generate_with_retry(
-                client,
-                model_name,
-                prompt,
-                _system_instruction_for_mode(resolved_mode),
-                logger,
+            body = provider.generate(
+                GenerationRequest(
+                    system_instruction=_system_instruction_for_mode(resolved_mode),
+                    prompt=prompt,
+                )
             )
 
             class_dir = output_base / _sanitize_name(class_name)
@@ -320,27 +235,29 @@ def generate_drafts_from_tasks(
 
             elapsed_ms = int((time.perf_counter() - start) * 1000)
             logger.info(
-                "GEN_SUCCESS title=%s class=%s path=%s duration_ms=%s mode=%s",
+                "GEN_SUCCESS title=%s class=%s path=%s duration_ms=%s mode=%s provider=%s",
                 title,
                 class_name,
                 output_path,
                 elapsed_ms,
                 resolved_mode,
+                provider.name,
             )
             _notify_draft_ready(title, class_name, logger)
 
-            # Free-tier pacing: avoid back-to-back requests.
-            time.sleep(15)
+            # Free-tier pacing, sized to the routed provider's rate limit.
+            time.sleep(provider.pacing_seconds)
         except Exception as exc:
             failed += 1
             elapsed_ms = int((time.perf_counter() - start) * 1000)
             logger.warning(
-                "GEN_FAILED title=%s class=%s reason=%s duration_ms=%s mode=%s",
+                "GEN_FAILED title=%s class=%s reason=%s duration_ms=%s mode=%s provider=%s",
                 title,
                 class_name,
                 exc,
                 elapsed_ms,
                 resolved_mode,
+                provider.name,
             )
 
     if has_filter and matched_tasks == 0:

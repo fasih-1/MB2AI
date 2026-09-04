@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from .brain import generate_drafts_from_tasks
 from .config import Settings, load_settings
 from .logger import setup_logger
+from .providers import NoProviderAvailableError, build_router
 from .scraper import Scraper
 from .text_extractor import extract_text_from_attachment
 from .vault import (
@@ -192,11 +193,14 @@ def _run_generate_job(
     output_base = settings.project_root / "data" / "pending_review"
 
     try:
+        # Generation reads the vault, so it honours hides and permanent deletes
+        # rather than regenerating from whatever the last scrape left on disk.
+        tasks, _ = list_tasks(settings.vault_db_path)
+
         summary = generate_drafts_from_tasks(
-            tasks_path=settings.tasks_output_path,
+            tasks=tasks,
             output_base=output_base,
-            api_key=settings.groq_api_key,
-            model_name=settings.groq_model,
+            provider_router=build_router(settings, logger),
             mode=mode,
             class_name=class_name,
             task_title=task_title,
@@ -214,6 +218,8 @@ def _run_generate_job(
             class_name,
             task_title,
         )
+    except NoProviderAvailableError as exc:
+        logger.error("API_GENERATE_NO_PROVIDER reason=%s", exc)
     except Exception:
         logger.exception("API_GENERATE_FAILED")
 

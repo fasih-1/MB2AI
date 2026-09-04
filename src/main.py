@@ -9,6 +9,8 @@ import uvicorn
 from src.brain import generate_drafts_from_tasks
 from src.config import load_settings
 from src.logger import setup_logger
+from src.providers import build_router
+from src.vault import list_tasks
 from src.scraper import Scraper
 
 
@@ -48,11 +50,11 @@ async def _run(args: argparse.Namespace) -> int:
 
     if args.generate:
         output_base = settings.project_root / "data" / "pending_review"
+        tasks, _ = list_tasks(settings.vault_db_path)
         summary = generate_drafts_from_tasks(
-            tasks_path=settings.tasks_output_path,
+            tasks=tasks,
             output_base=output_base,
-            api_key=settings.groq_api_key,
-            model_name=settings.groq_model,
+            provider_router=build_router(settings, logger),
             mode=args.mode,
             logger=logger,
         )
