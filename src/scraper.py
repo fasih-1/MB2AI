@@ -15,6 +15,7 @@ from .config import Settings
 from .models import ScrapeMetadata, ScrapeOutput
 from .parser import parse_tasks
 from .selectors import SELECTORS
+from .vault import finish_sync_run, ingest_scrape_payload, start_sync_run
 
 
 class TaskContainerNotFoundError(RuntimeError):
@@ -359,7 +360,76 @@ class Scraper:
                 task.full_description = task.full_description or ""
                 task.local_attachments = task.local_attachments or []
 
+    def _sync_vault(
+        self,
+        payload: ScrapeOutput,
+        sync_run_id: int,
+        used_auth_state: bool,
+        status: str,
+        message: str | None = None,
+    ) -> None:
+        """Fold a completed scrape into vault.db.
+
+        tasks_raw.json above is still written unchanged (brain.py reads it
+        directly), so a vault failure degrades the sync record rather than
+        failing the scrape.
+        """
+        vault_path = self.settings.vault_db_path
+
+        try:
+            counts = ingest_scrape_payload(
+                vault_path,
+                payload.model_dump(),
+                project_root=self.settings.project_root,
+            )
+            self.logger.info(
+                "VAULT_INGEST subjects=%s tasks=%s attachments=%s",
+                counts["subjects"],
+                counts["tasks"],
+                counts["attachments"],
+            )
+        except Exception as exc:
+            status = "degraded"
+            message = f"vault ingest failed: {exc}"
+            self.logger.warning("VAULT_INGEST_FAILED reason=%s", exc)
+
+        try:
+            finish_sync_run(
+                vault_path,
+                sync_run_id,
+                status=status,
+                total_items=payload.metadata.total_tasks,
+                parse_errors=payload.metadata.parse_errors_count,
+                base_url=payload.metadata.base_url,
+                used_auth_state=used_auth_state,
+                message=message,
+            )
+        except Exception as exc:
+            self.logger.warning("SYNC_RUN_FINISH_FAILED reason=%s", exc)
+
     async def run(self) -> Path:
+        try:
+            sync_run_id = start_sync_run(self.settings.vault_db_path)
+        except Exception as exc:
+            self.logger.warning("SYNC_RUN_START_FAILED reason=%s", exc)
+            sync_run_id = -1
+
+        try:
+            return await self._run(sync_run_id)
+        except Exception as exc:
+            try:
+                finish_sync_run(
+                    self.settings.vault_db_path,
+                    sync_run_id,
+                    status="failed",
+                    base_url=self.settings.base_url,
+                    message=str(exc),
+                )
+            except Exception:
+                pass
+            raise
+
+    async def _run(self, sync_run_id: int) -> Path:
         playwright, browser, context, used_auth_state = await self._open_context()
 
         try:
@@ -395,6 +465,14 @@ class Scraper:
                 with self.settings.tasks_output_path.open("w", encoding="utf-8") as handle:
                     json.dump(payload.model_dump(), handle, indent=2, ensure_ascii=False)
 
+                self._sync_vault(
+                    payload,
+                    sync_run_id,
+                    used_auth_state,
+                    status="partial",
+                    message=f"task container not found: {exc}",
+                )
+
                 await context.storage_state(path=str(self.settings.auth_state_path))
                 self.logger.info(
                     "SCRAPE_PARTIAL_SUCCESS total_tasks=0 output=%s (container not found)",
@@ -422,6 +500,13 @@ class Scraper:
             self.settings.tasks_output_path.parent.mkdir(parents=True, exist_ok=True)
             with self.settings.tasks_output_path.open("w", encoding="utf-8") as handle:
                 json.dump(payload.model_dump(), handle, indent=2, ensure_ascii=False)
+
+            self._sync_vault(
+                payload,
+                sync_run_id,
+                used_auth_state,
+                status="success" if len(tasks) else "empty",
+            )
 
             await context.storage_state(path=str(self.settings.auth_state_path))
             self.logger.info(
