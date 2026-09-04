@@ -6,6 +6,7 @@ from playwright.async_api import Locator, Page
 
 from .models import TaskItem
 from .selectors import SELECTORS
+from .vault import derive_source_task_id
 
 
 async def _first_text(node: Locator, selectors: tuple[str, ...]) -> Optional[str]:
@@ -44,12 +45,16 @@ async def _badge_labels_text(node: Locator) -> str:
     return ", ".join(values)
 
 
-def _task_id_from_content(index: int, title: str, class_name: str) -> str:
-    base = f"{index}-{class_name}-{title}".lower()
-    cleaned = "".join(ch if ch.isalnum() else "-" for ch in base)
-    while "--" in cleaned:
-        cleaned = cleaned.replace("--", "-")
-    return cleaned.strip("-")[:100] or f"task-{index}"
+def _task_id_from_content(
+    title: str, class_name: str, assignment_href: Optional[str]
+) -> str:
+    """Stable task id.
+
+    Delegates to the vault so the scrape payload and the database agree on
+    identity. Previously this hashed in the row's list index, which meant every
+    id changed whenever ManageBac re-ordered the dashboard.
+    """
+    return derive_source_task_id(assignment_href, class_name, title)
 
 
 async def parse_tasks(page: Page) -> list[TaskItem]:
@@ -97,7 +102,7 @@ async def parse_tasks(page: Page) -> list[TaskItem]:
         if not description:
             description = ""
 
-        task_id = _task_id_from_content(idx, title, class_name)
+        task_id = _task_id_from_content(title, class_name, assignment_href)
 
         tasks.append(
             TaskItem(

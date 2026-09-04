@@ -9,22 +9,30 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
 from .brain import generate_drafts_from_tasks
 from .config import Settings, load_settings
 from .logger import setup_logger
+from .providers import NoProviderAvailableError, build_router
 from .scraper import Scraper
 from .text_extractor import extract_text_from_attachment
 from .vault import (
+    DEFAULT_SOURCE,
+    KNOWN_SOURCES,
+    count_tasks,
+    get_last_sync_run,
     hide_task,
+    ingest_scrape_payload,
     list_drafts,
-    list_hidden_task_ids,
-    list_hidden_tasks,
+    list_hidden_items,
+    list_subjects,
+    list_tasks,
     permanently_delete_task,
     recover_task,
+    record_sync_run,
 )
 
 _log_queue: asyncio.Queue[str] | None = None
@@ -42,29 +50,18 @@ async def lifespan(_: FastAPI):
     settings = _get_settings()
     queue = _get_log_queue()
     loop = asyncio.get_running_loop()
-    setup_logger(settings.project_root, log_queue=queue, event_loop=loop)
+    logger = setup_logger(settings.project_root, log_queue=queue, event_loop=loop)
+    _backfill_vault_from_json(settings, logger)
     yield
 
 
-app = FastAPI(title="MB2AI API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="MB2AI API", version="0.2.0", lifespan=lifespan)
 
 
 def _sanitize_name(value: str) -> str:
     cleaned = re.sub(r"[<>:\"/\\|?*]+", "_", (value or "").strip())
     cleaned = re.sub(r"\s+", " ", cleaned).strip().strip(".")
     return cleaned[:120] or "untitled"
-
-
-def _normalize_text(value: str | None) -> str:
-    return re.sub(r"\s+", " ", (value or "").strip()).casefold()
-
-
-def _task_signature(class_name: str | None, task_title: str | None) -> str:
-    normalized_class = _normalize_text(class_name)
-    normalized_title = _normalize_text(task_title)
-    if not normalized_class and not normalized_title:
-        return ""
-    return f"{normalized_class}::{normalized_title}"
 
 
 @lru_cache(maxsize=1)
@@ -78,20 +75,92 @@ def _get_logger():
     return setup_logger(settings.project_root)
 
 
-def _read_tasks_payload(tasks_path: Path) -> dict[str, Any]:
-    if not tasks_path.exists():
-        raise HTTPException(status_code=404, detail="tasks_raw.json was not found.")
+def _backfill_vault_from_json(settings: Settings, logger) -> None:
+    """One-time seed of the vault from the last scrape on disk.
 
+    /tasks now reads SQLite, so a vault that predates the rework would look
+    empty until the next scrape. Runs only while the tasks table is empty.
+    """
     try:
+        if count_tasks(settings.vault_db_path) > 0:
+            return
+
+        tasks_path = settings.tasks_output_path
+        if not tasks_path.exists():
+            return
+
         with tasks_path.open("r", encoding="utf-8") as handle:
             payload = json.load(handle)
-    except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=500, detail=f"Invalid tasks JSON: {exc}") from exc
 
-    if not isinstance(payload, dict):
-        raise HTTPException(status_code=500, detail="Expected object payload in tasks_raw.json.")
+        counts = ingest_scrape_payload(
+            settings.vault_db_path,
+            payload,
+            project_root=settings.project_root,
+        )
 
-    return payload
+        # Preserve the original scrape timestamp rather than stamping the
+        # backfill time, so /tasks metadata is accurate straight after upgrade.
+        metadata = payload.get("metadata") if isinstance(payload, dict) else None
+        if isinstance(metadata, dict) and counts["tasks"]:
+            record_sync_run(
+                settings.vault_db_path,
+                source=DEFAULT_SOURCE,
+                started_at=metadata.get("scraped_at") or datetime.now(timezone.utc).isoformat(),
+                status="backfill",
+                total_items=int(metadata.get("total_tasks") or counts["tasks"]),
+                parse_errors=int(metadata.get("parse_errors_count") or 0),
+                base_url=metadata.get("base_url"),
+                used_auth_state=metadata.get("used_auth_state"),
+                message="seeded from data/tasks_raw.json",
+            )
+
+        logger.info(
+            "VAULT_BACKFILL subjects=%s tasks=%s attachments=%s source=%s",
+            counts["subjects"],
+            counts["tasks"],
+            counts["attachments"],
+            tasks_path,
+        )
+    except Exception:
+        logger.exception("VAULT_BACKFILL_FAILED")
+
+
+def _resolve_source(source: str) -> str:
+    normalized = (source or DEFAULT_SOURCE).strip().lower()
+    if normalized not in KNOWN_SOURCES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown source '{source}'. Expected one of: {', '.join(KNOWN_SOURCES)}.",
+        )
+    return normalized
+
+
+def _never_run_status(source: str) -> str:
+    """A source with no sync history: only ManageBac has an ingestion worker."""
+    return "never_run" if source == DEFAULT_SOURCE else "not_configured"
+
+
+def _build_tasks_metadata(
+    settings: Settings, source: str, visible_count: int, hidden_count: int
+) -> dict[str, Any]:
+    """Metadata block for /tasks, sourced from sync_runs.
+
+    Keeps the keys the old tasks_raw.json metadata carried so nothing
+    downstream has to change.
+    """
+    last_run = get_last_sync_run(settings.vault_db_path, source=source)
+
+    return {
+        "source": source,
+        "scraped_at": (last_run or {}).get("finished_at") or (last_run or {}).get("started_at"),
+        "base_url": (last_run or {}).get("base_url"),
+        "used_auth_state": (last_run or {}).get("used_auth_state"),
+        "sync_status": (last_run or {}).get("status") or _never_run_status(source),
+        "parse_errors_count": (last_run or {}).get("parse_errors", 0),
+        "total_tasks": visible_count + hidden_count,
+        "visible_tasks": visible_count,
+        "hidden_tasks": hidden_count,
+    }
 
 
 def _resolve_draft_path(settings: Settings, class_name: str, task_title: str) -> Path:
@@ -124,11 +193,14 @@ def _run_generate_job(
     output_base = settings.project_root / "data" / "pending_review"
 
     try:
+        # Generation reads the vault, so it honours hides and permanent deletes
+        # rather than regenerating from whatever the last scrape left on disk.
+        tasks, _ = list_tasks(settings.vault_db_path)
+
         summary = generate_drafts_from_tasks(
-            tasks_path=settings.tasks_output_path,
+            tasks=tasks,
             output_base=output_base,
-            api_key=settings.groq_api_key,
-            model_name=settings.groq_model,
+            provider_router=build_router(settings, logger),
             mode=mode,
             class_name=class_name,
             task_title=task_title,
@@ -146,6 +218,8 @@ def _run_generate_job(
             class_name,
             task_title,
         )
+    except NoProviderAvailableError as exc:
+        logger.error("API_GENERATE_NO_PROVIDER reason=%s", exc)
     except Exception:
         logger.exception("API_GENERATE_FAILED")
 
@@ -161,65 +235,37 @@ class TaskMutationRequest(BaseModel):
 
 
 @app.get("/tasks")
-def get_tasks() -> dict[str, Any]:
+def get_tasks(source: str = Query(DEFAULT_SOURCE)) -> dict[str, Any]:
     settings = _get_settings()
-    payload = _read_tasks_payload(settings.tasks_output_path)
-    hidden_ids = list_hidden_task_ids(settings.vault_db_path)
-    hidden_rows = list_hidden_tasks(settings.vault_db_path, limit=5000)
-    hidden_signatures = {
-        _task_signature(row.get("class_name"), row.get("task_title"))
-        for row in hidden_rows
+    resolved_source = _resolve_source(source)
+
+    tasks, hidden_count = list_tasks(settings.vault_db_path, source=resolved_source)
+
+    return {
+        "metadata": _build_tasks_metadata(
+            settings, resolved_source, len(tasks), hidden_count
+        ),
+        "tasks": tasks,
     }
-    tasks = payload.get("tasks")
-    if isinstance(tasks, list):
-        filtered_tasks = []
-        for task in tasks:
-            if not isinstance(task, dict):
-                filtered_tasks.append(task)
-                continue
-
-            task_id = str(task.get("id", "")).strip()
-            task_signature = _task_signature(
-                str(
-                    task.get("class_name")
-                    or task.get("className")
-                    or task.get("class")
-                    or ""
-                ),
-                str(task.get("title") or task.get("task_title") or ""),
-            )
-
-            is_hidden_by_id = bool(task_id) and task_id in hidden_ids
-            is_hidden_by_signature = bool(task_signature) and task_signature in hidden_signatures
-
-            if is_hidden_by_id or is_hidden_by_signature:
-                continue
-
-            filtered_tasks.append(task)
-
-        payload["tasks"] = filtered_tasks
-        metadata = payload.get("metadata")
-        if isinstance(metadata, dict):
-            metadata["visible_tasks"] = len(payload["tasks"])
-            metadata["hidden_tasks"] = len(tasks) - len(payload["tasks"])
-    return payload
 
 
 @app.get("/tasks/hidden")
-def get_hidden_tasks() -> dict[str, Any]:
+def get_hidden_tasks(source: str = Query(DEFAULT_SOURCE)) -> dict[str, Any]:
     settings = _get_settings()
-    hidden_tasks = list_hidden_tasks(settings.vault_db_path)
+    resolved_source = _resolve_source(source)
+    hidden_items = list_hidden_items(settings.vault_db_path, source=resolved_source)
+
     return {
         "tasks": [
             {
-                "id": row["task_id"],
-                "title": row["task_title"],
-                "class_name": row["class_name"],
+                "id": row["item_key"],
+                "title": row["title"],
+                "class_name": row["subject_name"],
                 "description": "",
                 "due_date": None,
                 "hidden_at": row["hidden_at"],
             }
-            for row in hidden_tasks
+            for row in hidden_items
         ]
     }
 
@@ -285,6 +331,52 @@ def permanently_delete_assignment(payload: TaskMutationRequest) -> dict[str, Any
         "message": "Task permanently deleted.",
         "task_id": task_id,
     }
+
+
+@app.get("/subjects")
+def get_subjects(source: str | None = Query(None)) -> dict[str, Any]:
+    settings = _get_settings()
+    resolved_source = _resolve_source(source) if source else None
+    return {"subjects": list_subjects(settings.vault_db_path, source=resolved_source)}
+
+
+@app.get("/sync/status")
+def get_sync_status() -> dict[str, Any]:
+    """Per-platform sync state.
+
+    Kognity has no ingestion worker yet, so it reports not_configured rather
+    than being absent — the UI can render both platforms from one shape.
+    """
+    settings = _get_settings()
+
+    statuses = []
+    for source in KNOWN_SOURCES:
+        last_run = get_last_sync_run(settings.vault_db_path, source=source)
+        if last_run is None:
+            statuses.append(
+                {
+                    "source": source,
+                    "status": _never_run_status(source),
+                    "last_run_at": None,
+                    "total_items": 0,
+                    "parse_errors": 0,
+                    "message": None,
+                }
+            )
+            continue
+
+        statuses.append(
+            {
+                "source": source,
+                "status": last_run["status"],
+                "last_run_at": last_run["finished_at"] or last_run["started_at"],
+                "total_items": last_run["total_items"],
+                "parse_errors": last_run["parse_errors"],
+                "message": last_run["message"],
+            }
+        )
+
+    return {"sources": statuses}
 
 
 @app.get("/tasks/{class_name}/{task_title}/draft", response_class=PlainTextResponse)
