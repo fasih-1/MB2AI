@@ -28,4 +28,6 @@ ui/.pub/
 .vscode/
 
 vault.db
+# Pre-migration snapshots written by vault.py before a schema upgrade.
+vault.db.bak-*
 *.lnk

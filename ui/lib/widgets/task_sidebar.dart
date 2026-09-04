@@ -1,5 +1,3 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 
 import '../services/api_service.dart';
@@ -23,6 +21,7 @@ class TaskSidebar extends StatelessWidget {
     required this.selectedTaskId,
     required this.completedAnimationCycle,
     required this.onViewChanged,
+    required this.onRefresh,
     required this.onTaskSelected,
     required this.onComplete,
     required this.onRecover,
@@ -36,6 +35,7 @@ class TaskSidebar extends StatelessWidget {
   final String? selectedTaskId;
   final int completedAnimationCycle;
   final ValueChanged<String> onViewChanged;
+  final VoidCallback onRefresh;
   final ValueChanged<TaskSummary> onTaskSelected;
   final ValueChanged<TaskSummary> onComplete;
   final ValueChanged<TaskSummary> onRecover;
@@ -43,37 +43,20 @@ class TaskSidebar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(kPanelRadius),
-      child: Container(
-        width: 360,
-        decoration: BoxDecoration(
-          border: Border.all(color: kSlateText.withValues(alpha: 0.08)),
-          borderRadius: BorderRadius.circular(kPanelRadius),
-          boxShadow: <BoxShadow>[
-            BoxShadow(
-              color: kSlateText.withValues(alpha: 0.08),
-              blurRadius: 26,
-              offset: const Offset(0, 12),
-            ),
-          ],
-        ),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.60),
-              borderRadius: BorderRadius.circular(kPanelRadius),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                _buildHeader(context),
-                _buildBody(context),
-              ],
-            ),
-          ),
-        ),
+    return Container(
+      width: 330,
+      decoration: BoxDecoration(
+        color: kSurface.withValues(alpha: 0.72),
+        border: Border.all(color: kBorder),
+        borderRadius: BorderRadius.circular(kPanelRadius),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          _buildHeader(context),
+          const Divider(height: 1),
+          _buildBody(context),
+        ],
       ),
     );
   }
@@ -82,43 +65,136 @@ class TaskSidebar extends StatelessWidget {
     final textTheme = Theme.of(context).textTheme;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 14),
+      padding: const EdgeInsets.fromLTRB(18, 16, 12, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Text(
+                isActiveView ? 'Tasks' : 'Completed',
+                style: textTheme.titleLarge,
+              ),
+              const SizedBox(width: 8),
+              if (!isLoading && error == null)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 7,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: kAppBackground,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: kBorder),
+                  ),
+                  child: Text(
+                    '${tasks.length}',
+                    style: textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              const Spacer(),
+              Tooltip(
+                message: 'Refresh',
+                child: IconButton(
+                  onPressed: onRefresh,
+                  icon: const Icon(Icons.refresh, size: 18),
+                  color: kTextSecondary,
+                  constraints: const BoxConstraints.tightFor(
+                    width: 34,
+                    height: 34,
+                  ),
+                  padding: EdgeInsets.zero,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _buildViewToggle(context),
+        ],
+      ),
+    );
+  }
+
+  /// A labelled two-segment toggle. The old header used two bare icons, where
+  /// which view was active read only as a colour difference.
+  Widget _buildViewToggle(BuildContext context) {
+    return Container(
+      height: 34,
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: kAppBackground,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: kBorder),
+      ),
       child: Row(
         children: <Widget>[
-          Expanded(
-            child: Text(
-              isActiveView ? 'Tasks' : 'Completed',
-              style: textTheme.headlineSmall?.copyWith(
-                color: kSlateText,
-                fontSize: 23,
-              ),
-            ),
+          _buildToggleSegment(
+            context,
+            label: 'Active',
+            icon: Icons.list_alt,
+            value: 'active',
           ),
-          Tooltip(
-            message: 'Active Tasks',
-            child: IconButton(
-              onPressed: () => onViewChanged('active'),
-              icon: Icon(
-                Icons.list_alt,
-                color: isActiveView
-                    ? kAccentBlue
-                    : kSlateText.withValues(alpha: 0.65),
-              ),
-            ),
-          ),
-          Tooltip(
-            message: 'Completed Bin',
-            child: IconButton(
-              onPressed: () => onViewChanged('completed'),
-              icon: Icon(
-                Icons.delete_outline,
-                color: isActiveView
-                    ? kSlateText.withValues(alpha: 0.65)
-                    : kAccentBlue,
-              ),
-            ),
+          _buildToggleSegment(
+            context,
+            label: 'Done',
+            icon: Icons.check_circle_outline,
+            value: 'completed',
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildToggleSegment(
+    BuildContext context, {
+    required String label,
+    required IconData icon,
+    required String value,
+  }) {
+    final textTheme = Theme.of(context).textTheme;
+    final selected = (value == 'active') == isActiveView;
+
+    return Expanded(
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: () => onViewChanged(value),
+          child: AnimatedContainer(
+            duration: kFastMotion,
+            decoration: BoxDecoration(
+              color: selected
+                  ? kAccentBlue.withValues(alpha: 0.16)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: selected
+                    ? kAccentBlue.withValues(alpha: 0.45)
+                    : Colors.transparent,
+              ),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                Icon(
+                  icon,
+                  size: 15,
+                  color: selected ? kAccentBlue : kTextSecondary,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  style: textTheme.bodySmall?.copyWith(
+                    color: selected ? kAccentBlue : kTextSecondary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -134,10 +210,22 @@ class TaskSidebar extends StatelessWidget {
       return Expanded(
         child: Center(
           child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Text(
-              error!,
-              style: const TextStyle(color: kDangerRed),
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                const Icon(
+                  Icons.cloud_off_outlined,
+                  size: 30,
+                  color: kDangerRed,
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  error!,
+                  textAlign: TextAlign.center,
+                  style: textTheme.bodySmall?.copyWith(color: kDangerRed),
+                ),
+              ],
             ),
           ),
         ),
@@ -147,12 +235,27 @@ class TaskSidebar extends StatelessWidget {
     if (tasks.isEmpty) {
       return Expanded(
         child: Center(
-          child: Text(
-            isActiveView
-                ? 'No active tasks found yet.'
-                : 'No completed tasks yet.',
-            style: textTheme.bodyMedium?.copyWith(
-              color: kSlateText.withValues(alpha: 0.65),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Icon(
+                  isActiveView
+                      ? Icons.inbox_outlined
+                      : Icons.check_circle_outline,
+                  size: 30,
+                  color: kTextSecondary.withValues(alpha: 0.6),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  isActiveView
+                      ? 'No active tasks.\nRun a scrape to pull them in.'
+                      : 'Nothing completed yet.',
+                  textAlign: TextAlign.center,
+                  style: textTheme.bodySmall,
+                ),
+              ],
             ),
           ),
         ),
@@ -161,9 +264,9 @@ class TaskSidebar extends StatelessWidget {
 
     return Expanded(
       child: ListView.separated(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
         itemCount: tasks.length,
-        separatorBuilder: (context, index) => const SizedBox(height: 8),
+        separatorBuilder: (context, index) => const SizedBox(height: 6),
         itemBuilder: (BuildContext context, int index) {
           final task = tasks[index];
           final card = TaskCard(

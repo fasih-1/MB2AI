@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/api_service.dart';
+import '../theme/app_theme.dart';
 import 'staggered_entrance.dart';
 
 /// Shows saved drafts from the vault.
@@ -32,9 +33,12 @@ Future<VaultDraft?> showVaultHistoryDialog({
                       replayToken: animationCycle,
                       child: ListTile(
                         title: Text(draft.taskTitle),
+                        titleTextStyle: Theme.of(context).textTheme.titleMedium,
                         subtitle: Text(
-                          '${draft.className} | ${draft.mode} | ${draft.createdAt}',
+                          '${draft.className}  ·  ${draft.mode}  ·  ${draft.createdAt}',
                         ),
+                        subtitleTextStyle:
+                            Theme.of(context).textTheme.bodySmall,
                         onTap: () =>
                             Navigator.of(dialogContext).pop(draft),
                       ),
@@ -73,7 +77,8 @@ Future<bool> showPermanentDeleteDialog({
           ),
           FilledButton(
             style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFFB91C1C),
+              backgroundColor: kDangerRed,
+              foregroundColor: const Color(0xFF14060A),
             ),
             onPressed: () => Navigator.of(dialogContext).pop(true),
             child: const Text('Delete Permanently'),

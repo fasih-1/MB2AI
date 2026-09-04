@@ -20,12 +20,13 @@ class ModeSelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 270,
-      padding: const EdgeInsets.all(4),
+      width: 240,
+      height: 40,
+      padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.95),
-        borderRadius: BorderRadius.circular(kCardRadius),
-        border: Border.all(color: kSlateText.withValues(alpha: 0.14)),
+        color: kAppBackground,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: kBorder),
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
@@ -49,17 +50,11 @@ class ModeSelector extends StatelessWidget {
                       width: segmentWidth,
                       decoration: BoxDecoration(
                         color: kAccentBlue,
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: <BoxShadow>[
-                          BoxShadow(
-                            color: kAccentBlue.withValues(
-                              alpha: 0.20 + (pulse * 0.10),
-                            ),
-                            blurRadius: 18 + (pulse * 8),
-                            spreadRadius: 0.3 + (pulse * 1.0),
-                            offset: const Offset(0, 6),
-                          ),
-                        ],
+                        borderRadius: BorderRadius.circular(9),
+                        boxShadow: accentGlow(
+                          opacity: 0.22 + (pulse * 0.16),
+                          blur: 14 + (pulse * 10),
+                        ),
                       ),
                     );
                   },
@@ -94,23 +89,23 @@ class ModeSelector extends StatelessWidget {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(9),
           hoverColor: isSelected
-              ? kAccentBlue.withValues(alpha: 0.22)
-              : kAccentBlue.withValues(alpha: 0.08),
+              ? Colors.white.withValues(alpha: 0.06)
+              : kAccentBlue.withValues(alpha: 0.10),
           onTap: () {
             if (mode == value) {
               return;
             }
             onModeChanged(value);
           },
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+          child: Center(
             child: Text(
               label,
               textAlign: TextAlign.center,
               style: textTheme.labelLarge?.copyWith(
-                color: isSelected ? Colors.white : kSlateText,
+                fontSize: 13,
+                color: isSelected ? const Color(0xFF0A1020) : kTextSecondary,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -138,28 +133,21 @@ class GenerateDraftButton extends StatelessWidget {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 280),
       curve: Curves.easeInOutCubic,
-      width: isBusy ? 48 : 172,
-      height: 44,
+      width: isBusy ? 40 : 150,
+      height: 40,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(isBusy ? 24 : 12),
-        boxShadow: isBusy
-            ? <BoxShadow>[
-                BoxShadow(
-                  color: kAccentBlue.withValues(alpha: 0.28),
-                  blurRadius: 20,
-                  spreadRadius: 0.8,
-                ),
-              ]
-            : null,
+        borderRadius: BorderRadius.circular(isBusy ? 20 : 12),
+        boxShadow: isBusy ? accentGlow(opacity: 0.34, blur: 22) : null,
       ),
       child: ElevatedButton(
         onPressed: isBusy ? null : onPressed,
         style: ElevatedButton.styleFrom(
           padding: EdgeInsets.zero,
           backgroundColor: kAccentBlue,
-          foregroundColor: Colors.white,
+          disabledBackgroundColor: kAccentBlue,
+          foregroundColor: const Color(0xFF0A1020),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(isBusy ? 24 : 12),
+            borderRadius: BorderRadius.circular(isBusy ? 20 : 12),
           ),
         ),
         child: AnimatedSwitcher(
@@ -171,11 +159,13 @@ class GenerateDraftButton extends StatelessWidget {
           child: isBusy
               ? const SizedBox(
                   key: ValueKey('generate_busy'),
-                  width: 20,
-                  height: 20,
+                  width: 18,
+                  height: 18,
                   child: CircularProgressIndicator(
                     strokeWidth: 2.2,
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      Color(0xFF0A1020),
+                    ),
                   ),
                 )
               : const Center(
@@ -186,9 +176,9 @@ class GenerateDraftButton extends StatelessWidget {
                       mainAxisAlignment: MainAxisAlignment.center,
                       mainAxisSize: MainAxisSize.min,
                       children: <Widget>[
-                        Icon(Icons.bolt, size: 18),
-                        SizedBox(width: 8),
-                        Text('Generate Drafts'),
+                        Icon(Icons.bolt, size: 17),
+                        SizedBox(width: 7),
+                        Text('Generate'),
                       ],
                     ),
                   ),

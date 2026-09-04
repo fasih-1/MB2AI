@@ -11,8 +11,9 @@ import '../theme/app_theme.dart';
 import '../widgets/ambient_background.dart';
 import '../widgets/debug_console.dart';
 import '../widgets/draft_view.dart';
-import '../widgets/generation_panel.dart';
+import '../widgets/generation_controls.dart';
 import '../widgets/task_sidebar.dart';
+import '../widgets/top_bar.dart';
 import '../widgets/vault_history_dialog.dart';
 
 /// Owns dashboard state and talks to the API. All presentation lives in
@@ -47,6 +48,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String? _draftMarkdown;
   String? _draftError;
   bool _showDebugConsole = false;
+  bool _showGenerationOptions = false;
   bool _isGeneratingDraft = false;
   int _completedViewAnimationCycle = 0;
   int _vaultAnimationCycle = 0;
@@ -569,8 +571,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           children: <Widget>[
             const AmbientBackground(),
             Padding(
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.all(18),
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
                   TaskSidebar(
                     tasks: _showingActive ? _tasks : _hiddenTasks,
@@ -580,12 +583,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     selectedTaskId: _selectedTaskId,
                     completedAnimationCycle: _completedViewAnimationCycle,
                     onViewChanged: _setTaskView,
+                    onRefresh: _showingActive ? _loadTasks : _loadHiddenTasks,
                     onTaskSelected: _selectTask,
                     onComplete: _hideTask,
                     onRecover: _recoverTask,
                     onDelete: _confirmAndPermanentlyDeleteTask,
                   ),
-                  const SizedBox(width: 24),
+                  const SizedBox(width: 18),
                   Expanded(child: _buildWorkspace(context)),
                 ],
               ),
@@ -597,61 +601,37 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildWorkspace(BuildContext context) {
+    // The generation bar only appears with a task selected, so the toolbar
+    // never shows controls that cannot act on anything.
+    final hasSelection = _selectedTaskId != null;
+
     return Column(
       children: <Widget>[
-        GenerationPanel(
-          instructionsController: _customInstructionsController,
-          mode: _mode,
-          modePulseToken: _modePulseToken,
-          isGenerating: _isGeneratingDraft,
+        TopBar(
           isVaultLoading: _isVaultLoading,
           showDebugConsole: _showDebugConsole,
-          attachedFileName: _attachedFileName,
-          onModeChanged: (value) {
-            setState(() {
-              _mode = value;
-              _modePulseToken++;
-            });
-          },
+          onScrape: _triggerScrape,
+          onOpenVault: _openVaultHistory,
           onToggleDebugConsole: () {
             setState(() {
               _showDebugConsole = !_showDebugConsole;
             });
           },
-          onScrape: _triggerScrape,
-          onGenerate: _triggerGenerate,
-          onRefresh: _showingActive ? _loadTasks : _loadHiddenTasks,
-          onOpenVault: _openVaultHistory,
-          onPickAttachment: _pickAttachment,
-          onClearAttachment: _clearAttachment,
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 14),
         Expanded(
-          child: AnimatedContainer(
-            duration: kMediumMotion,
-            curve: Curves.easeOut,
+          child: Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(30),
+            padding: const EdgeInsets.fromLTRB(26, 22, 26, 12),
             decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(kCardRadius),
-              border: Border.all(color: kSlateText.withValues(alpha: 0.06)),
-              boxShadow: <BoxShadow>[
-                BoxShadow(
-                  color: kSlateText.withValues(alpha: 0.06),
-                  blurRadius: 46,
-                  offset: const Offset(0, 20),
-                ),
-                BoxShadow(
-                  color: kAccentBlue.withValues(alpha: 0.03),
-                  blurRadius: 30,
-                  offset: const Offset(0, 8),
-                ),
-              ],
+              color: kSurface.withValues(alpha: 0.72),
+              borderRadius: BorderRadius.circular(kPanelRadius),
+              border: Border.all(color: kBorder),
             ),
             child: DraftView(
               selectedTaskId: _selectedTaskId,
               selectedTaskTitle: _selectedTaskTitle,
+              selectedTaskClassName: _selectedTaskClassName,
               isLoading: _isDraftLoading,
               markdown: _draftMarkdown,
               error: _draftError,
@@ -659,11 +639,43 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           ),
         ),
+        AnimatedSize(
+          duration: kMediumMotion,
+          curve: Curves.easeOutCubic,
+          alignment: Alignment.topCenter,
+          child: hasSelection
+              ? Padding(
+                  padding: const EdgeInsets.only(top: 14),
+                  child: GenerationControls(
+                    instructionsController: _customInstructionsController,
+                    mode: _mode,
+                    modePulseToken: _modePulseToken,
+                    isGenerating: _isGeneratingDraft,
+                    isExpanded: _showGenerationOptions,
+                    attachedFileName: _attachedFileName,
+                    onModeChanged: (value) {
+                      setState(() {
+                        _mode = value;
+                        _modePulseToken++;
+                      });
+                    },
+                    onGenerate: _triggerGenerate,
+                    onToggleExpanded: () {
+                      setState(() {
+                        _showGenerationOptions = !_showGenerationOptions;
+                      });
+                    },
+                    onPickAttachment: _pickAttachment,
+                    onClearAttachment: _clearAttachment,
+                  ),
+                )
+              : const SizedBox(width: double.infinity),
+        ),
         AnimatedContainer(
           duration: kMediumMotion,
           curve: Curves.easeOut,
-          margin: EdgeInsets.only(top: _showDebugConsole ? 16 : 0),
-          height: _showDebugConsole ? 250 : 0,
+          margin: EdgeInsets.only(top: _showDebugConsole ? 14 : 0),
+          height: _showDebugConsole ? 240 : 0,
           child: DebugConsole(
             onLogMessage: _handleLogMessage,
             onTestSuccess: _triggerDebugSuccess,

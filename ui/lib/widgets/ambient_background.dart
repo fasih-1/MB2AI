@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
 
-/// The decorative radial wash and accent orbs behind the dashboard.
+/// The ambient wash behind the dashboard.
 ///
-/// Purely presentational and non-interactive, so it stays out of the
-/// dashboard's build method.
+/// On the dark ground this is a subtle lift toward the top-left plus two very
+/// low-alpha accent orbs — enough to keep large flat areas from looking dead,
+/// without competing with the panels.
 class AmbientBackground extends StatelessWidget {
   const AmbientBackground({super.key});
 
@@ -14,31 +15,31 @@ class AmbientBackground extends StatelessWidget {
     return IgnorePointer(
       child: Stack(
         children: <Widget>[
-          Positioned.fill(
+          const Positioned.fill(
             child: DecoratedBox(
               decoration: BoxDecoration(
                 gradient: RadialGradient(
-                  center: const Alignment(-0.12, -0.24),
-                  radius: 1.22,
+                  center: Alignment(-0.35, -0.55),
+                  radius: 1.35,
                   colors: <Color>[
-                    Colors.white,
-                    const Color(0xFFF6FAFF),
-                    kEdgeTint,
+                    Color(0xFF1B2432),
+                    Color(0xFF141A23),
+                    kAppBackground,
                   ],
-                  stops: const <double>[0.0, 0.58, 1.0],
+                  stops: <double>[0.0, 0.45, 1.0],
                 ),
               ),
             ),
           ),
           Positioned(
-            top: 54,
-            right: -40,
-            child: _orb(280, kAccentBlue.withValues(alpha: 0.07)),
+            top: 40,
+            right: -60,
+            child: _orb(300, kAccentGlow.withValues(alpha: 0.06)),
           ),
           Positioned(
-            bottom: -50,
-            left: -20,
-            child: _orb(220, kAccentBlue.withValues(alpha: 0.04)),
+            bottom: -70,
+            left: -40,
+            child: _orb(240, kAccentBlue.withValues(alpha: 0.04)),
           ),
         ],
       ),
@@ -49,7 +50,12 @@ class AmbientBackground extends StatelessWidget {
     return Container(
       width: size,
       height: size,
-      decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: RadialGradient(
+          colors: <Color>[color, color.withValues(alpha: 0)],
+        ),
+      ),
     );
   }
 }

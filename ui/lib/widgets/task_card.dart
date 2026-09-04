@@ -45,10 +45,15 @@ class _TaskActionButtonState extends State<TaskActionButton> {
             curve: Curves.easeOut,
             child: IconButton(
               onPressed: widget.onPressed,
-              constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+              constraints: const BoxConstraints.tightFor(width: 34, height: 34),
               padding: EdgeInsets.zero,
               visualDensity: VisualDensity.compact,
-              icon: Icon(widget.icon, size: 18, color: widget.color),
+              icon: Icon(
+                widget.icon,
+                size: 17,
+                color: widget.color ??
+                    (_hovered ? kAccentBlue : kTextSecondary),
+              ),
             ),
           ),
         ),
@@ -61,6 +66,10 @@ class _TaskActionButtonState extends State<TaskActionButton> {
 ///
 /// Renders the active variant (tap to select, check to complete) or the
 /// completed variant (recover / permanently delete), depending on [isActive].
+///
+/// Selection reads as an accent left rail plus a lifted surface, rather than
+/// the wash of accent-tinted fill the light theme used — on a dark ground a
+/// large tinted block competes with the draft for attention.
 class TaskCard extends StatefulWidget {
   const TaskCard({
     super.key,
@@ -99,65 +108,74 @@ class _TaskCardState extends State<TaskCard> {
       child: AnimatedScale(
         duration: kFastMotion,
         curve: Curves.easeOutCubic,
-        scale: _hovered ? 1.02 : 1,
+        scale: _hovered ? 1.015 : 1,
         child: AnimatedContainer(
           duration: kFastMotion,
           curve: Curves.easeOut,
           decoration: BoxDecoration(
             color: selected
-                ? kAccentBlue.withValues(alpha: 0.16)
-                : Colors.white.withValues(alpha: 0.42),
-            borderRadius: BorderRadius.circular(kCardRadius),
+                ? kSurfaceElevated
+                : (_hovered
+                      ? kSurfaceElevated.withValues(alpha: 0.6)
+                      : Colors.transparent),
+            borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: selected
-                  ? kAccentBlue.withValues(alpha: 0.68)
-                  : kSlateText.withValues(alpha: 0.08),
+              color: selected ? kAccentBlue.withValues(alpha: 0.5) : kBorder,
             ),
-            boxShadow: (selected || _hovered)
-                ? <BoxShadow>[
-                    BoxShadow(
-                      color: kAccentBlue.withValues(
-                        alpha: selected ? (_hovered ? 0.18 : 0.12) : 0.10,
-                      ),
-                      blurRadius: _hovered ? 24 : 18,
-                      offset: Offset(0, _hovered ? 10 : 8),
-                    ),
-                  ]
-                : null,
+            boxShadow: selected ? accentGlow(opacity: 0.13, blur: 16) : null,
           ),
-          child: ListTile(
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 14,
-              vertical: 10,
-            ),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(kCardRadius),
-            ),
-            hoverColor: kAccentBlue.withValues(alpha: 0.08),
-            title: Text(
-              widget.task.title,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: textTheme.titleMedium?.copyWith(
-                fontSize: 14.5,
-                color: kSlateText,
-              ),
-            ),
-            subtitle: Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text(
-                widget.task.className,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: textTheme.bodySmall?.copyWith(
-                  color: kSlateText.withValues(alpha: 0.70),
+          child: IntrinsicHeight(
+            child: Row(
+              children: <Widget>[
+                // Accent rail: the primary selection cue.
+                AnimatedContainer(
+                  duration: kFastMotion,
+                  width: 3,
+                  decoration: BoxDecoration(
+                    color: selected ? kAccentBlue : Colors.transparent,
+                    borderRadius: const BorderRadius.horizontal(
+                      left: Radius.circular(12),
+                    ),
+                  ),
                 ),
-              ),
+                Expanded(
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    hoverColor: Colors.transparent,
+                    title: Text(
+                      widget.task.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: textTheme.titleMedium?.copyWith(
+                        fontSize: 13.8,
+                        color: selected ? kTextPrimary : kTextPrimary,
+                        fontWeight: selected
+                            ? FontWeight.w700
+                            : FontWeight.w600,
+                      ),
+                    ),
+                    subtitle: Padding(
+                      padding: const EdgeInsets.only(top: 3),
+                      child: Text(
+                        widget.task.className,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: textTheme.bodySmall?.copyWith(
+                          color: kTextSecondary,
+                        ),
+                      ),
+                    ),
+                    trailing: widget.isActive
+                        ? _buildCompleteButton()
+                        : _buildCompletedActions(),
+                    onTap: widget.isActive ? widget.onTap : null,
+                  ),
+                ),
+              ],
             ),
-            trailing: widget.isActive
-                ? _buildCompleteButton()
-                : _buildCompletedActions(),
-            onTap: widget.isActive ? widget.onTap : null,
           ),
         ),
       ),
@@ -172,15 +190,26 @@ class _TaskCardState extends State<TaskCard> {
         child: InkResponse(
           onTap: widget.onComplete,
           radius: 18,
-          child: Container(
-            width: 32,
-            height: 32,
+          child: AnimatedContainer(
+            duration: kFastMotion,
+            width: 30,
+            height: 30,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              border: Border.all(color: kAccentBlue.withValues(alpha: 0.55)),
-              color: kAccentBlue.withValues(alpha: 0.12),
+              border: Border.all(
+                color: _hovered
+                    ? kAccentBlue.withValues(alpha: 0.8)
+                    : kBorder,
+              ),
+              color: _hovered
+                  ? kAccentBlue.withValues(alpha: 0.18)
+                  : Colors.transparent,
             ),
-            child: const Icon(Icons.check, size: 18, color: kAccentBlue),
+            child: Icon(
+              Icons.check,
+              size: 16,
+              color: _hovered ? kAccentBlue : kTextSecondary,
+            ),
           ),
         ),
       ),
