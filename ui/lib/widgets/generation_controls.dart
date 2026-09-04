@@ -123,20 +123,51 @@ class GenerationControls extends StatelessWidget {
   }
 
   Widget _buildControlRow(BuildContext context) {
+    final modeSelector = ModeSelector(
+      mode: mode,
+      pulseToken: modePulseToken,
+      onModeChanged: onModeChanged,
+    );
+
     return Padding(
       padding: const EdgeInsets.all(12),
-      child: Row(
-        children: <Widget>[
-          ModeSelector(
-            mode: mode,
-            pulseToken: modePulseToken,
-            onModeChanged: onModeChanged,
-          ),
-          const SizedBox(width: 12),
-          GenerateDraftButton(isBusy: isGenerating, onPressed: onGenerate),
-          const Spacer(),
-          _buildExpanderButton(context),
-        ],
+      // The mode selector, generate button and expander have fixed widths, so
+      // below this the row would overflow; stack it onto two lines instead.
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          if (constraints.maxWidth >= 470) {
+            return Row(
+              children: <Widget>[
+                modeSelector,
+                const SizedBox(width: 12),
+                GenerateDraftButton(
+                  isBusy: isGenerating,
+                  onPressed: onGenerate,
+                ),
+                const Spacer(),
+                _buildExpanderButton(context),
+              ],
+            );
+          }
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              modeSelector,
+              const SizedBox(height: 10),
+              Row(
+                children: <Widget>[
+                  GenerateDraftButton(
+                    isBusy: isGenerating,
+                    onPressed: onGenerate,
+                  ),
+                  const Spacer(),
+                  _buildExpanderButton(context),
+                ],
+              ),
+            ],
+          );
+        },
       ),
     );
   }
