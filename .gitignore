@@ -19,6 +19,12 @@ data/tasks_raw.json
 # repo has a public remote. They are local working data, never source.
 data/attachments/
 data/pending_review/
+
+# Debug artifacts from a past scrape failure. Kept locally as the only saved
+# ManageBac markup reference, but they contain the user's name and a screenshot
+# of their dashboard, so they stay out of the repo.
+data/debug_page.html
+data/debug_zero_tasks.png
 logs/
 artifacts/
 
