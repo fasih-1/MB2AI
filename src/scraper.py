@@ -283,18 +283,10 @@ class Scraper:
         base_dir = self.settings.tasks_output_path.parent / "attachments" / self._sanitize_filename(task_title)
         base_dir.mkdir(parents=True, exist_ok=True)
 
-        attachment_selectors = [
-            ".attachments a[href]",
-            "a[download]",
-            "a[href*='attachment']",
-            "a[href*='download']",
-            "a[href*='file']",
-        ]
-
         downloaded_paths: list[str] = []
         seen_keys: set[str] = set()
 
-        for selector in attachment_selectors:
+        for selector in SELECTORS.attachment:
             links = await page.locator(selector).all()
             for link in links:
                 href = (await link.get_attribute("href") or "").strip()

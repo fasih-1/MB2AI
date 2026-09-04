@@ -12,6 +12,7 @@ class SelectorBundle:
     class_name: tuple[str, ...]
     description: tuple[str, ...]
     due_date: tuple[str, ...]
+    attachment: tuple[str, ...]
 
 
 SELECTORS = SelectorBundle(
@@ -63,5 +64,19 @@ SELECTORS = SelectorBundle(
         ".due-date",
         "time",
         ".deadline",
+    ),
+    attachment=(
+        ".attachments a[href]",
+        "a[download]",
+        "a[href*='attachment']",
+        "a[href*='download']",
+        # Path-segment match, not a bare substring: "file" alone also matches
+        # "/student/profile", which every task page links to in its nav. That
+        # false positive cost a 5s click-and-wait-for-download timeout on
+        # effectively every deep-scraped task (112 occurrences in one live
+        # session's logs) before this was scoped to "/file/". Confirmed real
+        # attachment links use it as a path segment, e.g.
+        # cdn.ca.managebac.com/uploads/term_report/file/<id>/<filename>.
+        "a[href*='/file/']",
     ),
 )
