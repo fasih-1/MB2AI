@@ -45,6 +45,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String? _selectedTaskId;
   String? _selectedTaskTitle;
   String? _selectedTaskClassName;
+  // Kept alongside the id/title/class so the draft header can show assessment
+  // metadata. Null for a draft opened from vault history, which has no live
+  // task behind it.
+  TaskSummary? _selectedTask;
   String? _draftMarkdown;
   String? _draftError;
   bool _showDebugConsole = false;
@@ -81,6 +85,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _selectedTaskId = null;
     _selectedTaskTitle = null;
     _selectedTaskClassName = null;
+    _selectedTask = null;
     _draftMarkdown = null;
     _draftError = null;
     _isDraftLoading = false;
@@ -329,6 +334,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _selectedTaskId = task.id;
       _selectedTaskTitle = task.title;
       _selectedTaskClassName = task.className;
+      _selectedTask = task;
       _isGeneratingDraft = false;
       _isDraftLoading = true;
       _draftMarkdown = null;
@@ -520,6 +526,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _selectedTaskId = 'vault_${picked.id}';
       _selectedTaskTitle = picked.taskTitle;
       _selectedTaskClassName = picked.className;
+      _selectedTask = null;
       _draftMarkdown = picked.content;
       _draftError = null;
       _isDraftLoading = false;
@@ -632,6 +639,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               selectedTaskId: _selectedTaskId,
               selectedTaskTitle: _selectedTaskTitle,
               selectedTaskClassName: _selectedTaskClassName,
+              selectedTask: _selectedTask,
               isLoading: _isDraftLoading,
               markdown: _draftMarkdown,
               error: _draftError,

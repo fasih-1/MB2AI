@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 
+import '../services/api_service.dart';
 import '../theme/app_theme.dart';
+import 'meta_badge.dart';
 
 /// The main content area: empty prompt, loading spinner, no-draft placeholder,
 /// or the rendered markdown draft.
@@ -13,6 +15,7 @@ class DraftView extends StatelessWidget {
     required this.selectedTaskId,
     required this.selectedTaskTitle,
     required this.selectedTaskClassName,
+    this.selectedTask,
     required this.isLoading,
     required this.markdown,
     required this.error,
@@ -22,6 +25,10 @@ class DraftView extends StatelessWidget {
   final String? selectedTaskId;
   final String? selectedTaskTitle;
   final String? selectedTaskClassName;
+
+  /// The selected task, when one is selected from the sidebar. Null for a
+  /// draft opened from vault history, which has no live task behind it.
+  final TaskSummary? selectedTask;
   final bool isLoading;
   final String? markdown;
   final String? error;
@@ -141,6 +148,37 @@ class DraftView extends StatelessWidget {
     );
   }
 
+  /// Assessment metadata for the selected task.
+  ///
+  /// The header has room for criterion names in full, unlike the sidebar card
+  /// where only the letters fit.
+  Widget _buildTaskMeta() {
+    final task = selectedTask;
+    if (task == null) {
+      return const SizedBox.shrink();
+    }
+
+    final badges = <Widget>[
+      if (task.taskType != null)
+        MetaBadge(label: task.taskType!, emphasised: task.isSummative),
+      if (task.category != null) MetaBadge(label: task.category!),
+      if (task.weight != null)
+        MetaBadge(label: task.weight!, tooltip: 'Weighting'),
+      if (task.status != null) MetaBadge(label: task.status!),
+      for (final criterion in task.rubricCriteria)
+        MetaBadge(label: criterion.label, icon: Icons.checklist),
+    ];
+
+    if (badges.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Wrap(spacing: 6, runSpacing: 6, children: badges),
+    );
+  }
+
   Widget _buildDraft(BuildContext context, String draft) {
     final textTheme = Theme.of(context).textTheme;
 
@@ -169,6 +207,7 @@ class DraftView extends StatelessWidget {
                       style: textTheme.bodySmall,
                     ),
                   ],
+                  _buildTaskMeta(),
                 ],
               ),
             ),

@@ -3,6 +3,26 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+/// One MYP assessment criterion, e.g. B / "Investigating".
+///
+/// [name] is null when the source text listed the letter without naming it.
+class RubricCriterion {
+  const RubricCriterion({required this.letter, this.name});
+
+  final String letter;
+  final String? name;
+
+  factory RubricCriterion.fromJson(Map<String, dynamic> json) {
+    return RubricCriterion(
+      letter: (json['letter'] ?? '').toString(),
+      name: json['name']?.toString(),
+    );
+  }
+
+  /// "B — Investigating", or just "B" when unnamed.
+  String get label => name == null || name!.isEmpty ? letter : '$letter — $name';
+}
+
 class TaskSummary {
   TaskSummary({
     required this.id,
@@ -10,6 +30,11 @@ class TaskSummary {
     required this.className,
     required this.dueDate,
     required this.description,
+    this.taskType,
+    this.category,
+    this.weight,
+    this.status,
+    this.rubricCriteria = const <RubricCriterion>[],
   });
 
   final String id;
@@ -18,13 +43,40 @@ class TaskSummary {
   final String? dueDate;
   final String description;
 
+  /// Parsed from the ManageBac badge strip; any of these may be absent.
+  final String? taskType;
+  final String? category;
+  final String? weight;
+  final String? status;
+
+  final List<RubricCriterion> rubricCriteria;
+
+  bool get isSummative => (taskType ?? '').toLowerCase() == 'summative';
+
+  static String? _optional(dynamic value) {
+    final text = value?.toString().trim();
+    return (text == null || text.isEmpty) ? null : text;
+  }
+
   factory TaskSummary.fromJson(Map<String, dynamic> json) {
+    final rawCriteria = json['rubric_criteria'];
     return TaskSummary(
       id: (json['id'] ?? '').toString(),
       title: (json['title'] ?? 'Untitled Task').toString(),
       className: (json['class_name'] ?? 'Unknown Class').toString(),
       dueDate: json['due_date']?.toString(),
       description: (json['description'] ?? '').toString(),
+      taskType: _optional(json['task_type']),
+      category: _optional(json['category']),
+      weight: _optional(json['weight']),
+      status: _optional(json['status']),
+      rubricCriteria: rawCriteria is List
+          ? rawCriteria
+                .whereType<Map<String, dynamic>>()
+                .map(RubricCriterion.fromJson)
+                .where((c) => c.letter.isNotEmpty)
+                .toList()
+          : const <RubricCriterion>[],
     );
   }
 }

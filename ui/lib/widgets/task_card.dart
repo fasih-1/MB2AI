@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
+import 'meta_badge.dart';
 
 /// A small icon button that lifts and tilts on hover.
 ///
@@ -159,13 +160,20 @@ class _TaskCardState extends State<TaskCard> {
                     ),
                     subtitle: Padding(
                       padding: const EdgeInsets.only(top: 3),
-                      child: Text(
-                        widget.task.className,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: textTheme.bodySmall?.copyWith(
-                          color: kTextSecondary,
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          Text(
+                            widget.task.className,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: textTheme.bodySmall?.copyWith(
+                              color: kTextSecondary,
+                            ),
+                          ),
+                          _buildMetaRow(),
+                        ],
                       ),
                     ),
                     trailing: widget.isActive
@@ -179,6 +187,43 @@ class _TaskCardState extends State<TaskCard> {
           ),
         ),
       ),
+    );
+  }
+
+  /// Badges for whatever metadata the scrape produced.
+  ///
+  /// Everything here is optional: older vault rows and tasks whose badge strip
+  /// did not parse simply render nothing, so the card degrades to its previous
+  /// two-line form rather than showing empty pills.
+  Widget _buildMetaRow() {
+    final task = widget.task;
+    final badges = <Widget>[];
+
+    if (task.taskType != null) {
+      badges.add(
+        MetaBadge(label: task.taskType!, emphasised: task.isSummative),
+      );
+    }
+    if (task.weight != null) {
+      badges.add(MetaBadge(label: task.weight!, tooltip: 'Weighting'));
+    }
+    if (task.rubricCriteria.isNotEmpty) {
+      badges.add(
+        MetaBadge(
+          label: task.rubricCriteria.map((c) => c.letter).join(' '),
+          icon: Icons.checklist,
+          tooltip: task.rubricCriteria.map((c) => c.label).join('\n'),
+        ),
+      );
+    }
+
+    if (badges.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Wrap(spacing: 5, runSpacing: 5, children: badges),
     );
   }
 
