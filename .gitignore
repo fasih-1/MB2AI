@@ -13,6 +13,12 @@ dist/
 # Generated data and logs
 data/auth_state.json
 data/tasks_raw.json
+
+# Scraped coursework and generated drafts. These are the user's own school
+# files - assignment briefs, attachments, and AI-assisted drafts - and this
+# repo has a public remote. They are local working data, never source.
+data/attachments/
+data/pending_review/
 logs/
 artifacts/
 
