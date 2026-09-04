@@ -19,6 +19,7 @@ from .logger import setup_logger
 from .providers import NoProviderAvailableError, build_router
 from .rubric import extract_criteria
 from .scraper import Scraper
+from .tls import enable_system_trust_store
 from .text_extractor import extract_text_from_attachment, extract_text_from_path
 from .vault import (
     DEFAULT_SOURCE,
@@ -56,6 +57,9 @@ async def lifespan(_: FastAPI):
     queue = _get_log_queue()
     loop = asyncio.get_running_loop()
     logger = setup_logger(settings.project_root, log_queue=queue, event_loop=loop)
+    # Before any outbound HTTPS: local TLS-scanning software would otherwise
+    # make every LLM call fail certificate verification.
+    enable_system_trust_store(logger)
     _backfill_vault_from_json(settings, logger)
     yield
 

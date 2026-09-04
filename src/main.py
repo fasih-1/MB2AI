@@ -12,6 +12,7 @@ from src.logger import setup_logger
 from src.providers import build_router
 from src.vault import list_tasks
 from src.scraper import Scraper
+from src.tls import enable_system_trust_store
 
 
 def _parse_args() -> argparse.Namespace:
@@ -47,6 +48,7 @@ def _parse_args() -> argparse.Namespace:
 async def _run(args: argparse.Namespace) -> int:
     settings = load_settings(force_headed=(args.headed or args.debug), debug_mode=args.debug)
     logger = setup_logger(settings.project_root)
+    enable_system_trust_store(logger)
 
     if args.generate:
         output_base = settings.project_root / "data" / "pending_review"
