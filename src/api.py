@@ -17,6 +17,7 @@ from .brain import generate_drafts_from_tasks
 from .config import Settings, load_settings
 from .logger import setup_logger
 from .providers import NoProviderAvailableError, build_router
+from .rubric import extract_criteria
 from .scraper import Scraper
 from .text_extractor import extract_text_from_attachment, extract_text_from_path
 from .vault import (
@@ -36,6 +37,7 @@ from .vault import (
     recover_task,
     record_sync_run,
     set_attachment_text,
+    update_task_rubric_criteria,
 )
 
 _log_queue: asyncio.Queue[str] | None = None
@@ -226,7 +228,26 @@ def _scraped_attachment_context(
                 attachment["file_name"],
             )
 
-    return "\n\n".join(sections)
+    context = "\n\n".join(sections)
+
+    # Criteria are often named only in the attached brief, not in the page text
+    # ingestion sees, so enrich the task from what was just read.
+    if context:
+        try:
+            criteria = extract_criteria(context)
+            if criteria:
+                stored = update_task_rubric_criteria(
+                    settings.vault_db_path, int(task["id"]), criteria
+                )
+                logger.info(
+                    "TASK_CRITERIA_FROM_ATTACHMENT title=%s criteria=%s",
+                    task_title,
+                    [c["letter"] for c in stored],
+                )
+        except Exception as exc:
+            logger.warning("TASK_CRITERIA_UPDATE_FAILED reason=%s", exc)
+
+    return context
 
 
 def _run_generate_job(

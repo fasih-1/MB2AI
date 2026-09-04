@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Optional
 
+from .rubric import extract_criteria, merge_criteria
+
 
 SCHEMA_VERSION = 1
 
@@ -501,6 +503,7 @@ def ingest_scrape_payload(
 
             source_task_id = derive_source_task_id(assignment_href, class_name, title)
             summary = str(task.get("description") or "")
+            full_description = str(task.get("full_description") or "")
             badges = _parse_badges(summary)
 
             connection.execute(
@@ -508,10 +511,10 @@ def ingest_scrape_payload(
                 INSERT INTO tasks (
                     source, source_task_id, subject_id, title, summary,
                     full_description, source_url, due_date,
-                    task_type, category, weight, status,
+                    task_type, category, weight, status, rubric_criteria,
                     parsed_cleanly, parse_error, first_seen_at, last_seen_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(source, source_task_id) DO UPDATE SET
                     subject_id = excluded.subject_id,
                     title = excluded.title,
@@ -523,6 +526,12 @@ def ingest_scrape_payload(
                     category = excluded.category,
                     weight = excluded.weight,
                     status = excluded.status,
+                    -- A re-scrape that finds no criteria must not wipe any
+                    -- that were recovered from an attachment.
+                    rubric_criteria = CASE
+                        WHEN excluded.rubric_criteria = '[]' THEN tasks.rubric_criteria
+                        ELSE excluded.rubric_criteria
+                    END,
                     parsed_cleanly = excluded.parsed_cleanly,
                     parse_error = excluded.parse_error,
                     last_seen_at = excluded.last_seen_at
@@ -533,13 +542,14 @@ def ingest_scrape_payload(
                     subject_id,
                     title,
                     summary,
-                    str(task.get("full_description") or ""),
+                    full_description,
                     assignment_href,
                     task.get("due_date"),
                     badges["task_type"],
                     badges["category"],
                     badges["weight"],
                     badges["status"],
+                    json.dumps(extract_criteria(full_description, summary)),
                     1 if task.get("parsed_cleanly", True) else 0,
                     task.get("parse_error"),
                     timestamp,
@@ -623,6 +633,38 @@ def list_task_attachments(vault_path: Path, task_id: int) -> list[dict[str, Any]
         ).fetchall()
 
     return [dict(row) for row in rows]
+
+
+def update_task_rubric_criteria(
+    vault_path: Path, task_id: int, criteria: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Merge newly found criteria into a task, returning the stored result.
+
+    Criteria often appear only in an attached brief rather than in the page
+    text, so this lets the attachment pass enrich what ingestion found.
+    """
+    _ensure_db(vault_path)
+    with _connect(vault_path) as connection:
+        row = connection.execute(
+            "SELECT rubric_criteria FROM tasks WHERE id = ?", (task_id,)
+        ).fetchone()
+        if row is None:
+            return []
+
+        try:
+            existing = json.loads(row["rubric_criteria"] or "[]")
+        except (json.JSONDecodeError, TypeError):
+            existing = []
+
+        merged = merge_criteria(existing, criteria)
+        if merged != existing:
+            connection.execute(
+                "UPDATE tasks SET rubric_criteria = ? WHERE id = ?",
+                (json.dumps(merged), task_id),
+            )
+            connection.commit()
+
+    return merged
 
 
 def set_attachment_text(vault_path: Path, attachment_id: int, text: str) -> None:
