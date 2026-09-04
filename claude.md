@@ -46,7 +46,7 @@ Steps 1–3 of the build order are **built and committed**. What follows describ
 Migrations run off `PRAGMA user_version`; `_ensure_db` upgrades in place and writes a `vault.db.bak-pre-v1` snapshot first (those snapshots are gitignored).
 
 - `subjects` — id, source, source_subject_id, name, ib_level, grade. `UNIQUE(source, name)`.
-- `tasks` — ManageBac-sourced, `source='managebac'`. Carries summary/full_description/due_date, a best-effort badge parse (`task_type`, `category`, `weight`, `status`), `rubric_criteria` (JSON, **not yet populated**), `first_seen_at`/`last_seen_at`, and `deleted_at` for soft deletes. `UNIQUE(source, source_task_id)`.
+- `tasks` — ManageBac-sourced, `source='managebac'`. Carries summary/full_description/due_date, a best-effort badge parse (`task_type`, `category`, `weight`, `status`), `rubric_criteria` (JSON, populated from task text — see Assessment criteria), `first_seen_at`/`last_seen_at`, and `deleted_at` for soft deletes. `UNIQUE(source, source_task_id)`.
 - `task_attachments` — project-relative paths, so the vault survives the repo moving on disk. `extracted_text` reserved, unused.
 - `content_blocks` — **placeholder for Kognity. Created empty; nothing reads or writes it.** Deliberately thin: its real shape is decided after the ingestion spike.
 - `drafts` — gained a nullable `task_id`. Keeps denormalized `task_title`/`class_name` so a draft survives its task disappearing from ManageBac.
@@ -85,21 +85,33 @@ On a dark ground drop shadows read as mud, so depth comes from a three-step surf
 ### Environment (`.env`)
 `MANAGEBAC_USERNAME` / `PASSWORD` / `BASE_URL`, `GROQ_API_KEY` / `GROQ_MODEL`, optional `GEMINI_API_KEY` / `GEMINI_MODEL`, `LLM_PROVIDER`, `LLM_LARGE_CONTEXT_CHARS`, plus paths. `.env.example` documents all of it. A second platform's credentials/auth state are **not** needed until the Kognity work starts.
 
-### Tests
-`ui/test/widget_test.dart` (app shell) and `ui/test/layout_test.dart` (toolbar and generation bar across five widths, collapsed and expanded) — 16 tests, run with `flutter test` from `ui/`.
+### Assessment criteria — `src/rubric.py`
+`tasks.rubric_criteria` is filled from the task text, not from new selectors. Real briefs write "Criterion B: Investigating", so `extract_criteria` handles both named forms and bare lists ("Criteria A and B"), restricted to A–D.
 
-**There are no Python tests.** The vault migration, task-identity derivation, and provider routing were verified by ad-hoc scripts, not a committed suite. This is the largest coverage gap: the migration runs against live data and is currently protected only by its backup file.
+Ingestion fills it from the task description; the attachment pass merges in anything the attached brief names, since criteria are often only there. A re-scrape that finds none will not wipe what an attachment supplied.
+
+This is text-derived on purpose: criteria are not exposed as structured data anywhere the scraper reaches, and there is no saved assignment-detail markup to write selectors against. **If a DOM source is ever confirmed on a real summative task page, prefer it and keep this as the fallback.**
+
+### Tests
+- **Python: 193 tests**, `pytest` from the repo root. Covers the schema migration, task identity, ingestion, hide/recover/delete, provider routing and retry, generation, attachments, criteria extraction, and the REST surface. Every test uses a temporary database and builds `Settings` directly, so the suite touches neither the real `vault.db` nor `.env`, and makes no network calls.
+- **Flutter: 16 tests**, `flutter test` from `ui/`. App shell plus toolbar and generation bar across five widths.
+
+Test-only dependencies live in `requirements-dev.txt`.
 
 ---
 
 ## Still To Do
 
-### Open threads from the completed steps
-- **`rubric_criteria` has no source.** The column exists and defaults to `[]`; `parser.py` does not extract MYP criteria A–D from the assignment page. This is the one *active* question from the original brief.
-- **Scraped attachments are not used.** `task_attachments` is populated on every scrape, but `/generate` still requires the user to re-upload a file the scraper already downloaded. Wiring it means passing extracted text into `brain.py`'s existing `source_document_context` parameter — no prompt-logic change.
-- **Gemini has never made a live call.** No `GEMINI_API_KEY` is set, so the real request path is unproven.
-- **No Python test suite** (see above).
-- **`data/pending_review/` and `data/attachments/`** are untracked but not gitignored — generated drafts and scraped PDFs sitting in the working tree.
+### Blocked on the user
+- **Neither LLM path has made a live call from this machine's test runs.** No `GEMINI_API_KEY` is set, so every prompt currently falls back to Groq regardless of size (logged as `LLM_ROUTE_FALLBACK`). Once keys for both are in `.env`, run one generation per backend to prove the real request paths, and confirm a large prompt actually reaches Gemini.
+
+### Repo hygiene — needs the owner's decision
+- **Coursework and generated drafts are in git history.** `data/attachments/` and `data/pending_review/` are now untracked and gitignored, but files committed in `e5b2cae` and `2041a0b` remain reachable in earlier commits and on the public GitHub remote — including teacher-supplied assignment materials and AI-assisted drafts of the user's own schoolwork. Removing them needs a history rewrite (`git filter-repo` or BFG) plus a force push. **Do not do this without the owner explicitly asking.**
+
+### Known gaps, not yet scheduled
+- The UI does not surface `rubric_criteria`, `task_type`, `category`, `weight` or `status`, though `/tasks` returns them all.
+- `parser.py` still does not read criteria from the assignment DOM; see the note under Assessment criteria.
+- The legacy `hidden_tasks` table is still present, pending a schema v2 that drops it.
 
 ### Build order — remaining
 1. ~~Schema + backend models~~ — **done**
