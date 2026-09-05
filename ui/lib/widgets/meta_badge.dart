@@ -24,17 +24,18 @@ class MetaBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
-    final foreground = emphasised ? kAccentBlue : kTextSecondary;
+    final accent = Theme.of(context).colorScheme.primary;
+    final foreground = emphasised ? accent : kTextSecondary;
 
     final pill = Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
       decoration: BoxDecoration(
         color: emphasised
-            ? kAccentBlue.withValues(alpha: 0.12)
+            ? accent.withValues(alpha: 0.12)
             : Colors.white.withValues(alpha: 0.04),
         borderRadius: BorderRadius.circular(6),
         border: Border.all(
-          color: emphasised ? kAccentBlue.withValues(alpha: 0.4) : kBorder,
+          color: emphasised ? accent.withValues(alpha: 0.4) : kBorder,
         ),
       ),
       child: Row(

@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:local_notifier/local_notifier.dart';
 
 import '../services/api_service.dart';
+import '../theme/accent_color_controller.dart';
 import '../theme/app_theme.dart';
 import '../widgets/ambient_background.dart';
 import '../widgets/debug_console.dart';
@@ -19,9 +20,14 @@ import '../widgets/vault_history_dialog.dart';
 /// Owns dashboard state and talks to the API. All presentation lives in
 /// widgets/, which take data and callbacks and hold no app state of their own.
 class DashboardScreen extends StatefulWidget {
-  const DashboardScreen({super.key, required this.apiService});
+  const DashboardScreen({
+    super.key,
+    required this.apiService,
+    required this.accentController,
+  });
 
   final ApiService apiService;
+  final AccentColorController accentController;
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
@@ -617,6 +623,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         TopBar(
           isVaultLoading: _isVaultLoading,
           showDebugConsole: _showDebugConsole,
+          accentController: widget.accentController,
           onScrape: _triggerScrape,
           onOpenVault: _openVaultHistory,
           onToggleDebugConsole: () {

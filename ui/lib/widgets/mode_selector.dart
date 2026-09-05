@@ -19,6 +19,9 @@ class ModeSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+    final onAccent = Theme.of(context).colorScheme.onPrimary;
+
     return Container(
       width: 240,
       height: 40,
@@ -49,9 +52,10 @@ class ModeSelector extends StatelessWidget {
                     return Container(
                       width: segmentWidth,
                       decoration: BoxDecoration(
-                        color: kAccentBlue,
+                        color: accent,
                         borderRadius: BorderRadius.circular(9),
                         boxShadow: accentGlow(
+                          accent,
                           opacity: 0.22 + (pulse * 0.16),
                           blur: 14 + (pulse * 10),
                         ),
@@ -62,11 +66,17 @@ class ModeSelector extends StatelessWidget {
               ),
               Row(
                 children: <Widget>[
-                  _buildSegment(context, value: 'tutor', label: 'Tutor'),
+                  _buildSegment(
+                    context,
+                    value: 'tutor',
+                    label: 'Tutor',
+                    onAccent: onAccent,
+                  ),
                   _buildSegment(
                     context,
                     value: 'ghostwriter',
                     label: 'Ghostwriter',
+                    onAccent: onAccent,
                   ),
                 ],
               ),
@@ -81,8 +91,10 @@ class ModeSelector extends StatelessWidget {
     BuildContext context, {
     required String value,
     required String label,
+    required Color onAccent,
   }) {
     final textTheme = Theme.of(context).textTheme;
+    final accent = Theme.of(context).colorScheme.primary;
     final isSelected = mode == value;
 
     return Expanded(
@@ -92,7 +104,7 @@ class ModeSelector extends StatelessWidget {
           borderRadius: BorderRadius.circular(9),
           hoverColor: isSelected
               ? Colors.white.withValues(alpha: 0.06)
-              : kAccentBlue.withValues(alpha: 0.10),
+              : accent.withValues(alpha: 0.10),
           onTap: () {
             if (mode == value) {
               return;
@@ -105,7 +117,7 @@ class ModeSelector extends StatelessWidget {
               textAlign: TextAlign.center,
               style: textTheme.labelLarge?.copyWith(
                 fontSize: 13,
-                color: isSelected ? const Color(0xFF0A1020) : kTextSecondary,
+                color: isSelected ? onAccent : kTextSecondary,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -130,6 +142,9 @@ class GenerateDraftButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+    final onAccent = Theme.of(context).colorScheme.onPrimary;
+
     return AnimatedContainer(
       duration: const Duration(milliseconds: 280),
       curve: Curves.easeInOutCubic,
@@ -137,15 +152,15 @@ class GenerateDraftButton extends StatelessWidget {
       height: 40,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(isBusy ? 20 : 12),
-        boxShadow: isBusy ? accentGlow(opacity: 0.34, blur: 22) : null,
+        boxShadow: isBusy ? accentGlow(accent, opacity: 0.34, blur: 22) : null,
       ),
       child: ElevatedButton(
         onPressed: isBusy ? null : onPressed,
         style: ElevatedButton.styleFrom(
           padding: EdgeInsets.zero,
-          backgroundColor: kAccentBlue,
-          disabledBackgroundColor: kAccentBlue,
-          foregroundColor: const Color(0xFF0A1020),
+          backgroundColor: accent,
+          disabledBackgroundColor: accent,
+          foregroundColor: onAccent,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(isBusy ? 20 : 12),
           ),
@@ -157,15 +172,13 @@ class GenerateDraftButton extends StatelessWidget {
             child: ScaleTransition(scale: animation, child: child),
           ),
           child: isBusy
-              ? const SizedBox(
-                  key: ValueKey('generate_busy'),
+              ? SizedBox(
+                  key: const ValueKey('generate_busy'),
                   width: 18,
                   height: 18,
                   child: CircularProgressIndicator(
                     strokeWidth: 2.2,
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      Color(0xFF0A1020),
-                    ),
+                    valueColor: AlwaysStoppedAnimation<Color>(onAccent),
                   ),
                 )
               : const Center(

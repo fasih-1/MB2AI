@@ -12,6 +12,8 @@ class AmbientBackground extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+
     return IgnorePointer(
       child: Stack(
         children: <Widget>[
@@ -22,8 +24,8 @@ class AmbientBackground extends StatelessWidget {
                   center: Alignment(-0.35, -0.55),
                   radius: 1.35,
                   colors: <Color>[
-                    Color(0xFF1B2432),
-                    Color(0xFF141A23),
+                    Color(0xFF241F33),
+                    Color(0xFF1B1726),
                     kAppBackground,
                   ],
                   stops: <double>[0.0, 0.45, 1.0],
@@ -34,12 +36,12 @@ class AmbientBackground extends StatelessWidget {
           Positioned(
             top: 40,
             right: -60,
-            child: _orb(300, kAccentGlow.withValues(alpha: 0.06)),
+            child: _orb(300, lightenAccent(accent).withValues(alpha: 0.06)),
           ),
           Positioned(
             bottom: -70,
             left: -40,
-            child: _orb(240, kAccentBlue.withValues(alpha: 0.04)),
+            child: _orb(240, accent.withValues(alpha: 0.04)),
           ),
         ],
       ),

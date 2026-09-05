@@ -154,6 +154,7 @@ class TaskSidebar extends StatelessWidget {
     required String value,
   }) {
     final textTheme = Theme.of(context).textTheme;
+    final accent = Theme.of(context).colorScheme.primary;
     final selected = (value == 'active') == isActiveView;
 
     return Expanded(
@@ -165,29 +166,21 @@ class TaskSidebar extends StatelessWidget {
           child: AnimatedContainer(
             duration: kFastMotion,
             decoration: BoxDecoration(
-              color: selected
-                  ? kAccentBlue.withValues(alpha: 0.16)
-                  : Colors.transparent,
+              color: selected ? accent.withValues(alpha: 0.16) : Colors.transparent,
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
-                color: selected
-                    ? kAccentBlue.withValues(alpha: 0.45)
-                    : Colors.transparent,
+                color: selected ? accent.withValues(alpha: 0.45) : Colors.transparent,
               ),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: <Widget>[
-                Icon(
-                  icon,
-                  size: 15,
-                  color: selected ? kAccentBlue : kTextSecondary,
-                ),
+                Icon(icon, size: 15, color: selected ? accent : kTextSecondary),
                 const SizedBox(width: 6),
                 Text(
                   label,
                   style: textTheme.bodySmall?.copyWith(
-                    color: selected ? kAccentBlue : kTextSecondary,
+                    color: selected ? accent : kTextSecondary,
                     fontWeight: FontWeight.w600,
                   ),
                 ),

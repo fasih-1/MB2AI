@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:ui/theme/accent_color_controller.dart';
 import 'package:ui/theme/app_theme.dart';
 import 'package:ui/widgets/generation_controls.dart';
 import 'package:ui/widgets/top_bar.dart';
@@ -10,7 +11,7 @@ import 'package:ui/widgets/top_bar.dart';
 /// form; these pin that behaviour at the widths where it matters.
 Widget _host(Widget child, double width) {
   return MaterialApp(
-    theme: buildAppTheme(),
+    theme: buildAppTheme(kDefaultAccent),
     home: Scaffold(
       body: Center(
         child: SizedBox(width: width, child: child),
@@ -32,6 +33,7 @@ void main() {
             TopBar(
               isVaultLoading: false,
               showDebugConsole: false,
+              accentController: AccentColorController(),
               onScrape: () {},
               onOpenVault: () {},
               onToggleDebugConsole: () {},

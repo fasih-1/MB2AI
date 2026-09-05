@@ -31,6 +31,8 @@ class _TaskActionButtonState extends State<TaskActionButton> {
 
   @override
   Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+
     return Tooltip(
       message: widget.tooltip,
       child: MouseRegion(
@@ -52,8 +54,7 @@ class _TaskActionButtonState extends State<TaskActionButton> {
               icon: Icon(
                 widget.icon,
                 size: 17,
-                color: widget.color ??
-                    (_hovered ? kAccentBlue : kTextSecondary),
+                color: widget.color ?? (_hovered ? accent : kTextSecondary),
               ),
             ),
           ),
@@ -68,9 +69,11 @@ class _TaskActionButtonState extends State<TaskActionButton> {
 /// Renders the active variant (tap to select, check to complete) or the
 /// completed variant (recover / permanently delete), depending on [isActive].
 ///
-/// Selection reads as an accent left rail plus a lifted surface, rather than
-/// the wash of accent-tinted fill the light theme used — on a dark ground a
-/// large tinted block competes with the draft for attention.
+/// Each task carries a subject-identity colour and icon (see
+/// [subjectColorFor]/[subjectIconFor]) so the list reads at a glance without
+/// opening anything — except the selected task, which borrows the app's
+/// accent colour instead, so the one thing you're looking at is also the one
+/// thing tinted to match the rest of the UI.
 class TaskCard extends StatefulWidget {
   const TaskCard({
     super.key,
@@ -102,6 +105,10 @@ class _TaskCardState extends State<TaskCard> {
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
     final selected = widget.isSelected;
+    final accent = Theme.of(context).colorScheme.primary;
+    final identityColor = selected
+        ? accent
+        : subjectColorFor(widget.task.className);
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
@@ -121,9 +128,9 @@ class _TaskCardState extends State<TaskCard> {
                       : Colors.transparent),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: selected ? kAccentBlue.withValues(alpha: 0.5) : kBorder,
+              color: selected ? accent.withValues(alpha: 0.5) : kBorder,
             ),
-            boxShadow: selected ? accentGlow(opacity: 0.13, blur: 16) : null,
+            boxShadow: selected ? accentGlow(accent, opacity: 0.13, blur: 16) : null,
           ),
           child: IntrinsicHeight(
             child: Row(
@@ -133,15 +140,19 @@ class _TaskCardState extends State<TaskCard> {
                   duration: kFastMotion,
                   width: 3,
                   decoration: BoxDecoration(
-                    color: selected ? kAccentBlue : Colors.transparent,
+                    color: selected ? accent : Colors.transparent,
                     borderRadius: const BorderRadius.horizontal(
                       left: Radius.circular(12),
                     ),
                   ),
                 ),
+                Padding(
+                  padding: const EdgeInsets.only(left: 11, top: 11),
+                  child: _buildSubjectChip(identityColor),
+                ),
                 Expanded(
                   child: ListTile(
-                    contentPadding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+                    contentPadding: const EdgeInsets.fromLTRB(10, 8, 8, 8),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
@@ -152,7 +163,7 @@ class _TaskCardState extends State<TaskCard> {
                       overflow: TextOverflow.ellipsis,
                       style: textTheme.titleMedium?.copyWith(
                         fontSize: 13.8,
-                        color: selected ? kTextPrimary : kTextPrimary,
+                        color: kTextPrimary,
                         fontWeight: selected
                             ? FontWeight.w700
                             : FontWeight.w600,
@@ -177,7 +188,7 @@ class _TaskCardState extends State<TaskCard> {
                       ),
                     ),
                     trailing: widget.isActive
-                        ? _buildCompleteButton()
+                        ? _buildCompleteButton(accent)
                         : _buildCompletedActions(),
                     onTap: widget.isActive ? widget.onTap : null,
                   ),
@@ -186,6 +197,25 @@ class _TaskCardState extends State<TaskCard> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  /// The subject-identity icon chip. Colour comes from [identityColor] —
+  /// the task's subject normally, or the app's accent when this card is
+  /// selected.
+  Widget _buildSubjectChip(Color identityColor) {
+    return Container(
+      width: 34,
+      height: 34,
+      decoration: BoxDecoration(
+        color: identityColor.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Icon(
+        subjectIconFor(widget.task.className),
+        size: 17,
+        color: identityColor,
       ),
     );
   }
@@ -227,7 +257,7 @@ class _TaskCardState extends State<TaskCard> {
     );
   }
 
-  Widget _buildCompleteButton() {
+  Widget _buildCompleteButton(Color accent) {
     return Tooltip(
       message: 'Mark as Completed',
       child: Material(
@@ -242,18 +272,14 @@ class _TaskCardState extends State<TaskCard> {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               border: Border.all(
-                color: _hovered
-                    ? kAccentBlue.withValues(alpha: 0.8)
-                    : kBorder,
+                color: _hovered ? accent.withValues(alpha: 0.8) : kBorder,
               ),
-              color: _hovered
-                  ? kAccentBlue.withValues(alpha: 0.18)
-                  : Colors.transparent,
+              color: _hovered ? accent.withValues(alpha: 0.18) : Colors.transparent,
             ),
             child: Icon(
               Icons.check,
               size: 16,
-              color: _hovered ? kAccentBlue : kTextSecondary,
+              color: _hovered ? accent : kTextSecondary,
             ),
           ),
         ),

@@ -181,6 +181,8 @@ class DraftView extends StatelessWidget {
 
   Widget _buildDraft(BuildContext context, String draft) {
     final textTheme = Theme.of(context).textTheme;
+    final accent = Theme.of(context).colorScheme.primary;
+    final accentGlowColor = lightenAccent(accent);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -231,21 +233,21 @@ class DraftView extends StatelessWidget {
                 .copyWith(
                   p: textTheme.bodyLarge,
                   h1: textTheme.headlineSmall?.copyWith(
-                    color: kAccentBlue,
+                    color: accent,
                     fontWeight: FontWeight.w800,
                   ),
                   h2: textTheme.titleLarge?.copyWith(
-                    color: kAccentBlue,
+                    color: accent,
                     fontWeight: FontWeight.w700,
                   ),
                   h3: textTheme.titleMedium?.copyWith(
-                    color: kAccentGlow,
+                    color: accentGlowColor,
                     fontWeight: FontWeight.w700,
                   ),
                   a: textTheme.bodyLarge?.copyWith(
-                    color: kAccentBlue,
+                    color: accent,
                     decoration: TextDecoration.underline,
-                    decorationColor: kAccentBlue.withValues(alpha: 0.6),
+                    decorationColor: accent.withValues(alpha: 0.6),
                   ),
                   strong: textTheme.bodyLarge?.copyWith(
                     color: Colors.white,
@@ -255,12 +257,10 @@ class DraftView extends StatelessWidget {
                     fontStyle: FontStyle.italic,
                     color: kTextSecondary,
                   ),
-                  listBullet: textTheme.bodyLarge?.copyWith(
-                    color: kAccentBlue,
-                  ),
+                  listBullet: textTheme.bodyLarge?.copyWith(color: accent),
                   code: textTheme.bodyMedium?.copyWith(
                     fontFamily: 'monospace',
-                    color: kAccentGlow,
+                    color: accentGlowColor,
                     backgroundColor: Colors.transparent,
                   ),
                   codeblockDecoration: BoxDecoration(
@@ -275,9 +275,7 @@ class DraftView extends StatelessWidget {
                   blockquoteDecoration: BoxDecoration(
                     color: kSurfaceElevated.withValues(alpha: 0.5),
                     borderRadius: BorderRadius.circular(8),
-                    border: const Border(
-                      left: BorderSide(color: kAccentBlue, width: 3),
-                    ),
+                    border: Border(left: BorderSide(color: accent, width: 3)),
                   ),
                   horizontalRuleDecoration: const BoxDecoration(
                     border: Border(top: BorderSide(color: kBorder)),

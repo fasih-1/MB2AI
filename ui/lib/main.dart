@@ -3,6 +3,7 @@ import 'package:local_notifier/local_notifier.dart';
 
 import 'screens/dashboard.dart';
 import 'services/api_service.dart';
+import 'theme/accent_color_controller.dart';
 import 'theme/app_theme.dart';
 
 Future<void> main() async {
@@ -11,21 +12,35 @@ Future<void> main() async {
     appName: 'MB2AI Command Center',
     shortcutPolicy: ShortcutPolicy.requireCreate,
   );
-  runApp(const Mb2AiApp());
+
+  final accentController = AccentColorController();
+  await accentController.load();
+
+  runApp(Mb2AiApp(accentController: accentController));
 }
 
 class Mb2AiApp extends StatelessWidget {
-  const Mb2AiApp({super.key});
+  const Mb2AiApp({super.key, required this.accentController});
+
+  final AccentColorController accentController;
 
   @override
   Widget build(BuildContext context) {
     final apiService = ApiService();
 
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'MB2AI',
-      theme: buildAppTheme(),
-      home: DashboardScreen(apiService: apiService),
+    return ListenableBuilder(
+      listenable: accentController,
+      builder: (context, _) {
+        return MaterialApp(
+          debugShowCheckedModeBanner: false,
+          title: 'MB2AI',
+          theme: buildAppTheme(accentController.accent),
+          home: DashboardScreen(
+            apiService: apiService,
+            accentController: accentController,
+          ),
+        );
+      },
     );
   }
 }

@@ -174,6 +174,7 @@ class GenerationControls extends StatelessWidget {
 
   Widget _buildExpanderButton(BuildContext context) {
     final showDot = _hasHiddenContext && !isExpanded;
+    final accent = Theme.of(context).colorScheme.primary;
 
     return Tooltip(
       message: isExpanded
@@ -189,13 +190,11 @@ class GenerationControls extends StatelessWidget {
             width: 44,
             decoration: BoxDecoration(
               color: isExpanded
-                  ? kAccentBlue.withValues(alpha: 0.14)
+                  ? accent.withValues(alpha: 0.14)
                   : Colors.transparent,
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
-                color: isExpanded
-                    ? kAccentBlue.withValues(alpha: 0.55)
-                    : kBorder,
+                color: isExpanded ? accent.withValues(alpha: 0.55) : kBorder,
               ),
             ),
             child: Stack(
@@ -208,19 +207,16 @@ class GenerationControls extends StatelessWidget {
                   child: Icon(
                     Icons.expand_more,
                     size: 20,
-                    color: isExpanded ? kAccentBlue : kTextSecondary,
+                    color: isExpanded ? accent : kTextSecondary,
                   ),
                 ),
                 // Without this the collapsed bar would silently hide typed
                 // instructions or an attached file.
                 if (showDot)
-                  const Positioned(
+                  Positioned(
                     top: 8,
                     right: 9,
-                    child: CircleAvatar(
-                      radius: 3,
-                      backgroundColor: kAccentBlue,
-                    ),
+                    child: CircleAvatar(radius: 3, backgroundColor: accent),
                   ),
               ],
             ),

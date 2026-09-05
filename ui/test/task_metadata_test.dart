@@ -29,7 +29,7 @@ TaskSummary _task({
 Future<void> _pumpCard(WidgetTester tester, TaskSummary task) async {
   await tester.pumpWidget(
     MaterialApp(
-      theme: buildAppTheme(),
+      theme: buildAppTheme(kDefaultAccent),
       home: Scaffold(
         body: SizedBox(
           width: 330,
@@ -163,7 +163,7 @@ void main() {
     testWidgets('does not overflow a narrow card', (tester) async {
       await tester.pumpWidget(
         MaterialApp(
-          theme: buildAppTheme(),
+          theme: buildAppTheme(kDefaultAccent),
           home: Scaffold(
             body: SizedBox(
               width: 240,
@@ -194,7 +194,7 @@ void main() {
     Future<void> pumpDraft(WidgetTester tester, TaskSummary? task) async {
       await tester.pumpWidget(
         MaterialApp(
-          theme: buildAppTheme(),
+          theme: buildAppTheme(kDefaultAccent),
           home: Scaffold(
             body: DraftView(
               selectedTaskId: '47949059',
