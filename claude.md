@@ -34,12 +34,12 @@ As of now, the user's Kognity account has **no populated content** — no practi
 Steps 1–3 of the build order are **built and committed**. What follows describes the code as it actually is.
 
 ### Tech stack
-- Frontend: Flutter Desktop (Windows target), **dark theme**, physics-based micro-interactions (hover-scale, morphing buttons)
+- Frontend: Flutter Desktop (Windows target), **dark theme with a user-settable accent colour**, physics-based micro-interactions (hover-scale, morphing buttons)
 - Backend: Python 3.11+, FastAPI + Uvicorn, communicates over `127.0.0.1` loopback
 - Scraping: Playwright
 - Local persistence: SQLite (`vault.db`)
 
-> Note on the theme: this file previously said "dark-mode" while the app actually shipped a light palette (`#FAFBFD`, `Brightness.light`). The user resolved this in favour of **dark**, and the app was rebuilt on a dark palette. `theme/app_theme.dart` is now the single source of colour truth.
+> Note on the theme: this file previously said "dark-mode" while the app actually shipped a light palette (`#FAFBFD`, `Brightness.light`). The user resolved this in favour of dark. That first dark pass then went through a further redesign — three visual directions were drafted on a Claude Design canvas (warm/analog, bold/editorial-dark, playful/colourful), the user picked a mix of the latter two, and that became the current implementation, described under Frontend below. `theme/app_theme.dart` is the single source of colour truth; nothing else should hardcode a colour.
 
 ### Data model — built (`src/vault.py`, schema v1)
 
@@ -75,12 +75,22 @@ Two limits are provider properties rather than constants: `max_description_chars
 
 `brain.py` takes a list of task dicts and no longer reads a file; callers load from the vault, so **generation honours hides and permanent deletes**. Its prompt text and the tutor/ghostwriter split are unchanged.
 
+**Both backends are now confirmed working with a real call** — `GROQ_MODEL=openai/gpt-oss-20b`, `GEMINI_MODEL=gemini-3.6-flash`. Two unrelated things had to be fixed to get there, both worth knowing about since the pattern will recur:
+- **TLS**: this dev machine's antivirus intercepts HTTPS and presents its own certificate, which Python's default certifi-based verification rejects — every call failed with `CERTIFICATE_VERIFY_FAILED` before `src/tls.py` (`enable_system_trust_store`, called at API and CLI startup) routed verification through the OS trust store instead.
+- **Model churn**: both `GROQ_MODEL` and `GEMINI_MODEL` had drifted onto decommissioned model ids (`llama-3.3-70b-versatile`, `gemini-2.0-flash`) since this file was first written. Groq's error for a dead model is a **misleading 403** whose message says "Access denied. Please check your network settings" — nothing to do with networking, so don't chase a network/region-block theory when that specific message shows up; go straight to `GET /openai/v1/models` with the account's key to see what it actually serves. Gemini's 404 is more honest and names the replacement directly. Both providers retire models on their own schedule — expect to redo this occasionally, and check the provider's current model list rather than assuming the pinned id still exists.
+
 ### Frontend — `ui/lib/`
-`dashboard.dart` went 1,642 → 687 lines and now owns only state and API calls. Presentation lives in `theme/app_theme.dart` plus `widgets/`: `top_bar.dart`, `task_sidebar.dart`, `task_card.dart`, `generation_controls.dart`, `mode_selector.dart`, `draft_view.dart`, `ambient_background.dart`, `staggered_entrance.dart`, `vault_history_dialog.dart`, `debug_console.dart`.
+`dashboard.dart` went 1,642 → ~700 lines and now owns only state and API calls. Presentation lives in `theme/app_theme.dart` plus `widgets/`: `top_bar.dart`, `task_sidebar.dart`, `task_card.dart`, `generation_controls.dart`, `mode_selector.dart`, `draft_view.dart`, `meta_badge.dart`, `ambient_background.dart`, `staggered_entrance.dart`, `vault_history_dialog.dart`, `debug_console.dart`.
 
-Layout: a slim toolbar holds only always-valid actions (scrape, vault, log console); instructions and the attachment picker sit behind an expander; the generation bar renders **only with a task selected**, so no control is shown that cannot act on anything.
+Layout: a slim toolbar holds only always-valid actions (scrape, vault, accent colour, log console); instructions and the attachment picker sit behind an expander; the generation bar renders **only with a task selected**, so no control is shown that cannot act on anything.
 
-On a dark ground drop shadows read as mud, so depth comes from a three-step surface ramp (`#0D1117` / `#161B22` / `#1C2331`) plus borders, and emphasis from an accent glow.
+**Theme**: a warm charcoal/violet dark palette (`#14111C` / `#1B1726` / `#241F33` surface ramp), Bricolage Grotesque for headers and IBM Plex Sans for body text via `google_fonts` (fetched at runtime — needs network on first launch, same as the rest of the app already does). This came out of a Claude Design canvas exploring three directions; the user picked a mix of the dark/editorial one and the colourful/card-based one.
+
+**Accent colour is a user setting, not a constant.** `theme/accent_color_controller.dart` is a `ChangeNotifier` holding the chosen `Color`, persisted via `shared_preferences` and loaded before the first frame; `main.dart` wraps `MaterialApp` in a `ListenableBuilder` so the whole theme rebuilds on change. `buildAppTheme()` takes that colour and derives everything from it — hover/press variants, the glow, and the text/icon colour drawn on a filled button, via a real contrast check (`onAccentFor`) rather than assuming dark-on-light always works (a white or saturated-red accent still needs readable button text). The picker itself is a swatch button in `TopBar` (Purple/Blue/Red/Green/Amber/White). No widget should read a fixed accent colour any more — use `Theme.of(context).colorScheme.primary`.
+
+**Subject identity colouring**: `TaskCard` shows a coloured icon chip per task, derived from the subject name via `subjectColorFor`/`subjectIconFor` (a stable hash into a small fixed palette, so the same subject always lands on the same colour regardless of list order — collisions between subjects are possible with a small palette and are an accepted tradeoff, not a bug, since the icon shape still disambiguates). The one exception: the *selected* task's chip borrows the app's accent colour instead of its subject colour, so the task you're looking at also matches the rest of the UI.
+
+On a dark ground drop shadows read as mud, so depth comes from the surface ramp plus borders, and emphasis from an accent glow computed from whatever colour is currently chosen.
 
 ### Environment (`.env`)
 `MANAGEBAC_USERNAME` / `PASSWORD` / `BASE_URL`, `GROQ_API_KEY` / `GROQ_MODEL`, optional `GEMINI_API_KEY` / `GEMINI_MODEL`, `LLM_PROVIDER`, `LLM_LARGE_CONTEXT_CHARS`, plus paths. `.env.example` documents all of it. A second platform's credentials/auth state are **not** needed until the Kognity work starts.
@@ -93,8 +103,8 @@ Ingestion fills it from the task description; the attachment pass merges in anyt
 This is text-derived on purpose: criteria are not exposed as structured data anywhere the scraper reaches, and there is no saved assignment-detail markup to write selectors against. **If a DOM source is ever confirmed on a real summative task page, prefer it and keep this as the fallback.**
 
 ### Tests
-- **Python: 193 tests**, `pytest` from the repo root. Covers the schema migration, task identity, ingestion, hide/recover/delete, provider routing and retry, generation, attachments, criteria extraction, and the REST surface. Every test uses a temporary database and builds `Settings` directly, so the suite touches neither the real `vault.db` nor `.env`, and makes no network calls.
-- **Flutter: 16 tests**, `flutter test` from `ui/`. App shell plus toolbar and generation bar across five widths.
+- **Python: 203 tests**, `pytest` from the repo root. Covers the schema migration, task identity, ingestion, hide/recover/delete, provider routing and retry, generation, attachments, criteria extraction, the false-positive attachment-selector fix, TLS trust-store injection, and the REST surface. Every test uses a temporary database and builds `Settings` directly, so the suite touches neither the real `vault.db` nor `.env`, and makes no network calls.
+- **Flutter: 31 tests**, `flutter test` from `ui/`. App shell, toolbar/generation-bar overflow across five widths, task metadata badges, and the accent-colour picker (open → pick a swatch → controller updates and persists; a selected card borrows the accent while an unselected one keeps its subject colour). The picker tests exist because OS-level synthetic clicks stopped registering partway through one session for reasons unrelated to the app — if that recurs, verify interactive Flutter behaviour through `flutter test`'s own tap simulation rather than screenshot-and-click automation.
 
 Test-only dependencies live in `requirements-dev.txt`.
 
@@ -102,16 +112,13 @@ Test-only dependencies live in `requirements-dev.txt`.
 
 ## Still To Do
 
-### Blocked on the user
-- **Neither LLM path has made a live call from this machine's test runs.** No `GEMINI_API_KEY` is set, so every prompt currently falls back to Groq regardless of size (logged as `LLM_ROUTE_FALLBACK`). Once keys for both are in `.env`, run one generation per backend to prove the real request paths, and confirm a large prompt actually reaches Gemini.
-
-### Repo hygiene — needs the owner's decision
-- **Coursework and generated drafts are in git history.** `data/attachments/` and `data/pending_review/` are now untracked and gitignored, but files committed in `e5b2cae` and `2041a0b` remain reachable in earlier commits and on the public GitHub remote — including teacher-supplied assignment materials and AI-assisted drafts of the user's own schoolwork. Removing them needs a history rewrite (`git filter-repo` or BFG) plus a force push. **Do not do this without the owner explicitly asking.**
-
 ### Known gaps, not yet scheduled
-- The UI does not surface `rubric_criteria`, `task_type`, `category`, `weight` or `status`, though `/tasks` returns them all.
-- `parser.py` still does not read criteria from the assignment DOM; see the note under Assessment criteria.
+- `parser.py` still does not read criteria from the assignment DOM; see the note under Assessment criteria. Text-derived extraction is the deliberate fallback until a real summative task page can be inspected.
 - The legacy `hidden_tasks` table is still present, pending a schema v2 that drops it.
+- The accent-colour swatch list (Purple/Blue/Red/Green/Amber/White) is fixed in `app_theme.dart`; a full colour-wheel picker was judged unnecessary for a six-choice setting, but revisit if the user asks for an arbitrary colour.
+
+### Resolved
+The two items previously listed here — no LLM backend had made a live call, and coursework/drafts were reachable in git history — are both closed: both Groq and Gemini are confirmed working with real calls (see LLM providers above), and the git history was rewritten (`git filter-repo`, force-pushed) to remove the coursework; the pre-rewrite history is backed up outside the repo. The UI also now surfaces `rubric_criteria`/`task_type`/`category`/`weight`/`status` via `MetaBadge`, so that gap is closed too.
 
 ### Build order — remaining
 1. ~~Schema + backend models~~ — **done**
@@ -129,4 +136,4 @@ Test-only dependencies live in `requirements-dev.txt`.
 - (Deferred) What specific Kognity data is worth ingesting — full textbook text, section summaries, syllabus sub-topic titles, practice question metadata?
 - (Deferred) Final `content_blocks` schema shape.
 - (Deferred) Whether Kognity's login is standard form-based or SAML/SSO.
-- **Grade/programme mismatch:** this brief describes IB DP Grade 11, but `brain.py`'s system prompt hard-codes *"an elite IB MYP 5 Study Assistant"* and the scraped data in the vault is MYP Grade 10. Worth confirming which programme the prompts should target before the next generation-quality pass. Prompt text has deliberately not been changed.
+- **Grade/programme mismatch:** this brief describes IB DP Grade 11, and `brain.py`'s system prompt hard-codes *"an elite IB MYP 5 Study Assistant."* The vault held only MYP Grade 10 tasks for most of this build cycle, but a live scrape has since picked up two DP Grade 11 Math tasks alongside them — the transition this brief describes is genuinely starting. One of those tasks' instructions read *"Do the homework on Kognity.com,"* which is also the first live signal that Kognity may now have content; worth checking manually. Once the vault is consistently DP-Grade-11, revisit whether the MYP-specific prompt wording still fits. Prompt text has deliberately not been changed.
