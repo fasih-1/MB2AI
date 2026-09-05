@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import os
+import sys
 
 from dotenv import load_dotenv
 
@@ -37,7 +38,13 @@ def _to_bool(value: str | None, default: bool) -> bool:
 
 
 def load_settings(force_headed: bool = False, debug_mode: bool = False) -> Settings:
-    project_root = Path(__file__).resolve().parent.parent
+    if getattr(sys, "frozen", False):
+        # A PyInstaller-frozen __file__ resolves inside the onefile temp
+        # extraction dir, not next to the shipped exe, so .env and vault.db
+        # would silently land in a folder that's wiped after the process exits.
+        project_root = Path(sys.executable).resolve().parent
+    else:
+        project_root = Path(__file__).resolve().parent.parent
     dotenv_path = project_root / ".env"
     load_dotenv(dotenv_path=dotenv_path, override=True)
 

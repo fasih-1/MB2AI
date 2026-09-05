@@ -1,12 +1,18 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from PyInstaller.utils.hooks import collect_submodules
 
+# uvicorn.run("src.api:app", ...) resolves that target by string at runtime,
+# so PyInstaller's static import graph never sees it and never bundles
+# src/api.py (or anything it imports, e.g. fastapi) unless told to explicitly.
+# uvicorn itself also picks its event-loop/protocol backend dynamically, so it
+# needs every submodule collected rather than a hand-picked list.
 a = Analysis(
     ['src\\main.py'],
     pathex=['.'],
     binaries=[],
     datas=[],
-    hiddenimports=['uvicorn', 'uvicorn.logging', 'uvicorn.loops', 'uvicorn.protocols', 'fastapi', 'pydantic', 'pydantic.json'],
+    hiddenimports=['src.api'] + collect_submodules('uvicorn'),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
