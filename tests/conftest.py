@@ -161,7 +161,7 @@ def make_settings(tmp_path: Path, vault_db: Path, **overrides: Any) -> Settings:
         "groq_api_key": "test-groq-key",
         "groq_model": "openai/gpt-oss-20b",
         "gemini_api_key": "",
-        "gemini_model": "gemini-2.0-flash",
+        "gemini_model": "gemini-3.6-flash",
         "llm_provider": "auto",
         "llm_large_context_chars": 12000,
         "tasks_output_path": tmp_path / "tasks_raw.json",
