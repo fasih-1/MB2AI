@@ -95,6 +95,14 @@ On a dark ground drop shadows read as mud, so depth comes from the surface ramp 
 ### Environment (`.env`)
 `MANAGEBAC_USERNAME` / `PASSWORD` / `BASE_URL`, `GROQ_API_KEY` / `GROQ_MODEL`, optional `GEMINI_API_KEY` / `GEMINI_MODEL`, `LLM_PROVIDER`, `LLM_LARGE_CONTEXT_CHARS`, plus paths. `.env.example` documents all of it. A second platform's credentials/auth state are **not** needed until the Kognity work starts.
 
+### Packaging a standalone build
+`python -m src.main --serve` and `flutter run -d windows` are for development; a real double-click distributable is `brain.spec` (PyInstaller, onefile) plus `flutter build windows --release`, both copied into one folder alongside a launcher batch file. Three non-obvious bugs had to be fixed to make that actually work, all worth knowing before touching `brain.spec` again:
+- **Build with `.venv`'s Python, not the global one.** This project's real dependencies (fastapi, uvicorn, groq, google-genai, playwright, ...) are only installed in `.venv`; running `pyinstaller` under the global interpreter silently produces an exe that imports none of them (`ModuleNotFoundError: No module named 'fastapi'` at runtime, even though the build itself reports success). Always build with `./.venv/Scripts/python.exe -m PyInstaller brain.spec`.
+- **`src.api` has to be a hidden import.** `main.py` starts the server as `uvicorn.run("src.api:app", ...)` — a string uvicorn resolves dynamically — so PyInstaller's static analysis never sees that `src/api.py` (and everything it imports) needs bundling. `brain.spec`'s `hiddenimports` now includes `'src.api'` explicitly, plus `collect_submodules('uvicorn')` since uvicorn also chooses its event-loop/protocol backend dynamically.
+- **`project_root` can't come from `Path(__file__)` in a frozen build.** Inside a PyInstaller onefile exe, `__file__` resolves into the temp extraction directory, not next to the shipped exe — so a packaged app would silently create a fresh empty `vault.db` and never find `.env`. `config.py`'s `load_settings` now checks `sys.frozen` and uses `Path(sys.executable).resolve().parent` instead, so `.env` and `vault.db` must sit next to `brain.exe` in the packaged folder (copy both in manually; neither is bundled inside the exe).
+
+`build/` (PyInstaller's intermediate cache) and `dist/` (the actual output, including `.env`/`vault.db` copies) are both gitignored — a distributable folder is assembled locally and is never something to commit or share as-is, since it contains real API keys.
+
 ### Assessment criteria — `src/rubric.py`
 `tasks.rubric_criteria` is filled from the task text, not from new selectors. Real briefs write "Criterion B: Investigating", so `extract_criteria` handles both named forms and bare lists ("Criteria A and B"), restricted to A–D.
 
